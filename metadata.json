@@ -1,0 +1,6 @@
+{
+  "name": "NetScope X — Windows Network Intelligence Suite",
+  "description": "High-performance desktop network intelligence utility with real-time per-process bandwidth accounting, adapter telemetry, live connection inspector, and diagnostics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

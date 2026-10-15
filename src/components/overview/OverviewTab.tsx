@@ -1,0 +1,389 @@
+import React, { useState } from 'react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Wifi,
+  Network as EthernetIcon,
+  Activity,
+  Globe,
+  Radio,
+  Clock,
+  Sparkles,
+} from 'lucide-react';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import { NetworkAdapter, NetworkStats, PingResult } from '../../types/network';
+import { formatBytes, formatSpeed, formatLatency, formatJitter, formatPercent } from '../../utils/formatters';
+
+interface OverviewTabProps {
+  adapters: NetworkAdapter[];
+  selectedAdapterId: string;
+  onSelectAdapter: (id: string) => void;
+  liveStats: NetworkStats | null;
+  pingResult: PingResult | null;
+  onSelectPingTarget: (target: string) => void;
+  speedHistory: { time: string; downBps: number; upBps: number }[];
+}
+
+export const OverviewTab: React.FC<OverviewTabProps> = ({
+  adapters,
+  selectedAdapterId,
+  onSelectAdapter,
+  liveStats,
+  pingResult,
+  onSelectPingTarget,
+  speedHistory,
+}) => {
+  const [chartTimeframe, setChartTimeframe] = useState<'30s' | '60s' | '5m'>('30s');
+  const [customPingHost, setCustomPingHost] = useState('');
+
+  const activeAdapter =
+    adapters.find(a => a.id === selectedAdapterId) ||
+    adapters.find(a => a.isDefault) ||
+    adapters[0];
+
+  const downSpeed = formatSpeed(liveStats?.downloadBps || 0);
+  const upSpeed = formatSpeed(liveStats?.uploadBps || 0);
+
+  // Filter chart history based on timeframe
+  const filteredHistory = React.useMemo(() => {
+    const count = chartTimeframe === '30s' ? 30 : chartTimeframe === '60s' ? 60 : 120;
+    return speedHistory.slice(-count).map(item => ({
+      ...item,
+      downKbps: Math.round(item.downBps / 1024),
+      upKbps: Math.round(item.upBps / 1024),
+    }));
+  }, [speedHistory, chartTimeframe]);
+
+  const handleCustomPingSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (customPingHost.trim()) {
+      onSelectPingTarget(customPingHost.trim());
+      setCustomPingHost('');
+    }
+  };
+
+  return (
+    <div className="space-y-3.5 p-3 sm:p-4 max-w-5xl mx-auto pb-16">
+      {/* 1. Connection Status Card */}
+      <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3.5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800/60">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-sky-400">
+              {activeAdapter?.type === 'wifi' ? (
+                <Wifi className="w-4 h-4" />
+              ) : (
+                <EthernetIcon className="w-4 h-4" />
+              )}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-xs text-slate-100">
+                  {activeAdapter?.name || 'Network Adapter'}
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                  Connected
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 truncate max-w-[260px] sm:max-w-md">
+                {activeAdapter?.description}
+              </p>
+            </div>
+          </div>
+
+          {/* Adapter switcher */}
+          <div className="flex items-center gap-1.5">
+            <select
+              value={selectedAdapterId}
+              onChange={e => onSelectAdapter(e.target.value)}
+              className="text-xs bg-slate-950 border border-slate-700/80 rounded-md px-2.5 py-1 text-slate-300 focus:outline-none focus:border-sky-500"
+            >
+              <option value="auto">Auto Select Adapter</option>
+              {adapters.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({a.type.toUpperCase()})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Detailed Adapter Properties Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 text-xs">
+          <div>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Local IPv4</span>
+            <span className="font-mono text-slate-200 font-medium">{activeAdapter?.localIPv4 || '192.168.1.145'}</span>
+          </div>
+
+          <div>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Gateway</span>
+            <span className="font-mono text-slate-200 font-medium">{activeAdapter?.gateway || '192.168.1.1'}</span>
+          </div>
+
+          <div>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+              {activeAdapter?.type === 'wifi' ? 'Wi-Fi Signal / SSID' : 'Link Speed'}
+            </span>
+            <span className="font-mono text-slate-200 font-medium truncate block">
+              {activeAdapter?.type === 'wifi'
+                ? `${activeAdapter.ssid || 'Wi-Fi'} (${activeAdapter.signalPercent || 92}%)`
+                : `${activeAdapter?.speedMbps || 2500} Mbps Full Duplex`}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">MAC Hardware</span>
+            <span className="font-mono text-slate-200 font-medium">{activeAdapter?.macAddress || '04:7C:16:B3:99:A1'}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Live Speed Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Download Rate Card */}
+        <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3.5 relative overflow-hidden">
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+            <div className="flex items-center gap-1.5">
+              <div className="w-5 h-5 rounded-md bg-sky-500/10 flex items-center justify-center text-sky-400">
+                <ArrowDown className="w-3.5 h-3.5" />
+              </div>
+              <span className="font-medium text-slate-300">Download Rate</span>
+            </div>
+            <span className="text-[11px] text-slate-400 font-mono">Session: {formatBytes(liveStats?.sessionDownloadBytes || 0)}</span>
+          </div>
+
+          <div className="flex items-baseline gap-2 mt-2">
+            <span className="text-3xl font-bold tracking-tight text-slate-100 font-mono tabular-nums">
+              {downSpeed.value}
+            </span>
+            <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 font-mono">
+              {downSpeed.unit}
+            </span>
+          </div>
+
+          <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
+            <span>Today's Total:</span>
+            <span className="font-mono text-slate-200 font-medium">
+              {formatBytes(liveStats?.dailyDownloadBytes || 0)}
+            </span>
+          </div>
+        </div>
+
+        {/* Upload Rate Card */}
+        <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3.5 relative overflow-hidden">
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+            <div className="flex items-center gap-1.5">
+              <div className="w-5 h-5 rounded-md bg-teal-500/10 flex items-center justify-center text-teal-400">
+                <ArrowUp className="w-3.5 h-3.5" />
+              </div>
+              <span className="font-medium text-slate-300">Upload Rate</span>
+            </div>
+            <span className="text-[11px] text-slate-400 font-mono">Session: {formatBytes(liveStats?.sessionUploadBytes || 0)}</span>
+          </div>
+
+          <div className="flex items-baseline gap-2 mt-2">
+            <span className="text-3xl font-bold tracking-tight text-slate-100 font-mono tabular-nums">
+              {upSpeed.value}
+            </span>
+            <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-teal-500/10 text-teal-400 font-mono">
+              {upSpeed.unit}
+            </span>
+          </div>
+
+          <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
+            <span>Today's Total:</span>
+            <span className="font-mono text-slate-200 font-medium">
+              {formatBytes(liveStats?.dailyUploadBytes || 0)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Live Traffic Graph Card */}
+      <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-sky-400" />
+            <span className="font-semibold text-xs text-slate-200">Real-Time Bandwidth Stream</span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Legend */}
+            <div className="flex items-center gap-3 text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-xs bg-sky-400" />
+                <span className="text-slate-400">Download</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-xs bg-teal-400" />
+                <span className="text-slate-400">Upload</span>
+              </div>
+            </div>
+
+            {/* Timeframe selector */}
+            <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded border border-slate-800 text-[11px]">
+              {(['30s', '60s', '5m'] as const).map(tf => (
+                <button
+                  key={tf}
+                  onClick={() => setChartTimeframe(tf)}
+                  className={`px-2 py-0.5 rounded transition-all ${
+                    chartTimeframe === tf
+                      ? 'bg-slate-800 text-sky-400 font-medium'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Chart Viewport */}
+        <div className="h-44 sm:h-52 w-full pt-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={filteredHistory} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id="downGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
+                </linearGradient>
+                <linearGradient id="upGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#2dd4bf" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#2dd4bf" stopOpacity={0.0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="time" stroke="#475569" fontSize={10} tickLine={false} />
+              <YAxis
+                stroke="#475569"
+                fontSize={10}
+                tickLine={false}
+                tickFormatter={val => `${val} KB`}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#090d16',
+                  borderColor: '#334155',
+                  borderRadius: '8px',
+                  fontSize: '11px',
+                }}
+                labelStyle={{ color: '#94a3b8' }}
+                formatter={(value: any, name: any) => [
+                  `${value} KB/s`,
+                  name === 'downKbps' ? 'Download' : 'Upload',
+                ]}
+              />
+              <Area
+                type="monotone"
+                dataKey="downKbps"
+                stroke="#38bdf8"
+                strokeWidth={2}
+                fillOpacity={1}
+                fill="url(#downGrad)"
+                isAnimationActive={false}
+              />
+              <Area
+                type="monotone"
+                dataKey="upKbps"
+                stroke="#2dd4bf"
+                strokeWidth={2}
+                fillOpacity={1}
+                fill="url(#upGrad)"
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* 4. Connection Quality & Latency Section */}
+      <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800/60">
+          <div className="flex items-center gap-2">
+            <Radio className="w-4 h-4 text-emerald-400" />
+            <span className="font-semibold text-xs text-slate-200">Connection Quality & Latency</span>
+          </div>
+
+          {/* Quick Target Switcher */}
+          <div className="flex items-center gap-1 text-[11px]">
+            {['1.1.1.1', '8.8.8.8', '9.9.9.9'].map(target => (
+              <button
+                key={target}
+                onClick={() => onSelectPingTarget(target)}
+                className={`px-2 py-0.5 rounded border transition-colors ${
+                  pingResult?.target === target
+                    ? 'bg-sky-500/20 border-sky-500/40 text-sky-300 font-medium'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {target === '1.1.1.1' ? 'Cloudflare' : target === '8.8.8.8' ? 'Google' : 'Quad9'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Latency stats grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-3">
+          <div>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Current Ping</span>
+            <span className="text-xl font-bold font-mono text-emerald-400 tabular-nums">
+              {formatLatency(pingResult?.latencyMs || 0)}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Average</span>
+            <span className="text-base font-semibold font-mono text-slate-200 tabular-nums">
+              {formatLatency(pingResult?.avgLatencyMs || 0)}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Min / Max</span>
+            <span className="text-base font-semibold font-mono text-slate-200 tabular-nums">
+              {pingResult ? `${pingResult.minLatencyMs.toFixed(0)} / ${pingResult.maxLatencyMs.toFixed(0)} ms` : '--'}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Jitter</span>
+            <span className="text-base font-semibold font-mono text-sky-400 tabular-nums">
+              {formatJitter(pingResult?.jitterMs || 0)}
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Packet Loss</span>
+            <span className="text-base font-semibold font-mono text-slate-200 tabular-nums">
+              {formatPercent(pingResult?.packetLossPercent || 0)}
+            </span>
+          </div>
+        </div>
+
+        {/* Custom ping probe input */}
+        <form onSubmit={handleCustomPingSubmit} className="mt-3 pt-3 border-t border-slate-800/60 flex items-center gap-2">
+          <Globe className="w-3.5 h-3.5 text-slate-500" />
+          <input
+            type="text"
+            placeholder="Probe custom hostname or IP (e.g. gateway.local, discord.com)..."
+            value={customPingHost}
+            onChange={e => setCustomPingHost(e.target.value)}
+            className="flex-1 bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-sky-500"
+          />
+          <button
+            type="submit"
+            className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-medium rounded transition-colors"
+          >
+            Probe
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
