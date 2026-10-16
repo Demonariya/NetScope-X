@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TitleBar } from './components/layout/TitleBar';
 import { Navigation, TabType } from './components/layout/Navigation';
 import { OverviewTab } from './components/overview/OverviewTab';
@@ -17,16 +17,51 @@ import {
   SocketConnection,
   TrafficHistoryRecord,
   AppSettings,
-  CanvasMode,
 } from './types/network';
 import { api } from './services/api';
 import { formatTime } from './utils/formatters';
 
 export default function App() {
-  const [canvasMode, setCanvasMode] = useState<CanvasMode>('portrait_9_16');
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [isTrayModalOpen, setIsTrayModalOpen] = useState(false);
+
+  // Theme state: dark | light | system
+  const [theme, setTheme] = useState<'dark' | 'light' | 'system'>(() => {
+    const saved = localStorage.getItem('netscope_theme');
+    if (saved === 'dark' || saved === 'light' || saved === 'system') return saved;
+    return 'dark';
+  });
+
+  // Apply theme to DOM
+  useEffect(() => {
+    const applyTheme = () => {
+      let effective = theme;
+      if (theme === 'system') {
+        effective = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      const root = document.documentElement;
+      if (effective === 'light') {
+        root.classList.add('light');
+        root.classList.remove('dark');
+        root.setAttribute('data-theme', 'light');
+      } else {
+        root.classList.add('dark');
+        root.classList.remove('light');
+        root.setAttribute('data-theme', 'dark');
+      }
+    };
+
+    applyTheme();
+    localStorage.setItem('netscope_theme', theme);
+
+    if (theme === 'system') {
+      const mql = window.matchMedia('(prefers-color-scheme: dark)');
+      const listener = () => applyTheme();
+      mql.addEventListener('change', listener);
+      return () => mql.removeEventListener('change', listener);
+    }
+  }, [theme]);
 
   // Core telemetry state
   const [adapters, setAdapters] = useState<NetworkAdapter[]>([]);
@@ -71,8 +106,8 @@ export default function App() {
         setConnections(conns);
         setHistory(hist);
         setSettings(cfg);
-        if (cfg.appearance.defaultCanvasMode) {
-          setCanvasMode(cfg.appearance.defaultCanvasMode);
+        if (cfg?.appearance?.theme) {
+          setTheme(cfg.appearance.theme);
         }
       } catch (err) {
         console.error('Initial telemetry load failed:', err);
@@ -136,6 +171,59 @@ export default function App() {
     addToast('Process Stats Reset', pid ? `PID ${pid} counters cleared` : 'All process counters cleared', 'success');
   };
 
+  // Toggle Block / Unblock process
+  const handleToggleBlock = async (exeName: string, block: boolean, pid?: number) => {
+    try {
+      await api.toggleBlockProcess(exeName, block, pid);
+      // Immediately reflect blocked state in UI
+      setProcesses(prev =>
+        prev.map(p =>
+          p.exeName.toLowerCase() === exeName.toLowerCase()
+            ? {
+                ...p,
+                isBlocked: block,
+                downloadBps: block ? 0 : p.downloadBps,
+                uploadBps: block ? 0 : p.uploadBps,
+              }
+            : p
+        )
+      );
+
+      if (block) {
+        addToast(
+          'Application Blocked',
+          `Traffic for ${exeName} blocked via Windows Firewall rule`,
+          'error'
+        );
+      } else {
+        addToast(
+          'Application Unblocked',
+          `Network access restored for ${exeName}`,
+          'success'
+        );
+      }
+    } catch {
+      addToast('Firewall Rule Error', `Failed to update rule for ${exeName}`, 'error');
+    }
+  };
+
+  // Handle Theme Change
+  const handleThemeChange = (newTheme: 'dark' | 'light' | 'system') => {
+    setTheme(newTheme);
+    if (settings) {
+      const updated = {
+        ...settings,
+        appearance: {
+          ...settings.appearance,
+          theme: newTheme,
+        },
+      };
+      setSettings(updated);
+      api.saveSettings(updated);
+    }
+    addToast('Theme Updated', `${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} mode active`, 'info');
+  };
+
   // Save settings
   const handleSaveSettings = async (newSettings: AppSettings) => {
     setSettings(newSettings);
@@ -161,58 +249,29 @@ export default function App() {
     addToast('Minimized to Taskbar', 'NetScope X window hidden', 'info');
   };
 
-  const handleMaximize = () => {
-    setCanvasMode(prev => (prev === 'maximized' ? 'portrait_9_16' : 'maximized'));
-  };
-
   const handleClose = () => {
     setIsTrayModalOpen(true);
     addToast('Window Minimized to Tray', 'Monitoring remains active in background', 'info');
   };
 
-  const isPortrait = canvasMode === 'portrait_9_16';
-
-  // Layout container classes based on CanvasMode
-  const getContainerClasses = () => {
-    switch (canvasMode) {
-      case 'portrait_9_16':
-        return 'w-full max-w-[460px] h-[92vh] max-h-[880px] rounded-2xl shadow-2xl shadow-black/80 border border-slate-800/80 my-auto';
-      case 'standard_desktop':
-        return 'w-full max-w-[880px] h-[90vh] max-h-[820px] rounded-xl shadow-2xl shadow-black/80 border border-slate-800/80 my-auto';
-      case 'expanded_desktop':
-        return 'w-full max-w-[1180px] h-[92vh] max-h-[860px] rounded-xl shadow-2xl shadow-black/80 border border-slate-800/80 my-auto';
-      case 'maximized':
-        return 'w-full h-screen rounded-none border-0';
-    }
-  };
-
   return (
-    <div className="min-h-screen w-full bg-[#070a0f] flex items-center justify-center overflow-hidden font-sans text-slate-100 p-0 sm:p-2">
-      {/* Native Desktop Window Container */}
-      <div className={`flex flex-col bg-[#0b0f17] overflow-hidden transition-all duration-300 relative ${getContainerClasses()}`}>
-        {/* Windows Custom Title Bar */}
+    <div className="min-h-screen w-full bg-[#070a0f] flex flex-col items-center justify-center overflow-hidden font-sans text-slate-100 p-0 select-none">
+      {/* Strict 405 × 720 px, 9:16 Portrait Canvas Frame */}
+      <div
+        style={{ width: '405px', height: '720px' }}
+        className="max-w-full max-h-[100dvh] aspect-[9/16] flex flex-col bg-[#0b0f17] overflow-hidden relative shadow-2xl border border-slate-800/80 rounded-none sm:rounded-2xl mx-auto"
+      >
+        {/* Native Windows Custom Title Bar */}
         <TitleBar
-          canvasMode={canvasMode}
-          onCanvasModeChange={setCanvasMode}
           isMonitoring={isMonitoring}
           onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
           onOpenTrayModal={() => setIsTrayModalOpen(true)}
           onMinimize={handleMinimize}
-          onMaximize={handleMaximize}
           onClose={handleClose}
         />
 
-        {/* Desktop Top Navigation (when not in portrait bottom-nav mode) */}
-        {!isPortrait && (
-          <Navigation
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            isPortrait={false}
-          />
-        )}
-
-        {/* Viewport Content Area */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
+        {/* Viewport Content Area with Vertical Scrolling */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden relative min-h-0 w-full">
           {activeTab === 'overview' && (
             <OverviewTab
               adapters={adapters}
@@ -229,6 +288,7 @@ export default function App() {
             <ApplicationsTab
               processes={processes}
               onResetStats={handleResetProcessStats}
+              onToggleBlock={handleToggleBlock}
               isMonitoring={isMonitoring}
             />
           )}
@@ -256,6 +316,8 @@ export default function App() {
             <SettingsTab
               settings={settings}
               adapters={adapters}
+              currentTheme={theme}
+              onThemeChange={handleThemeChange}
               onSaveSettings={handleSaveSettings}
               onResetSession={handleResetSession}
               onClearHistory={handleClearHistory}
@@ -264,14 +326,11 @@ export default function App() {
           )}
         </div>
 
-        {/* Portrait Mode Bottom Ergonomic Navigation Bar */}
-        {isPortrait && (
-          <Navigation
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            isPortrait={true}
-          />
-        )}
+        {/* Dedicated 9:16 Portrait Bottom Navigation Bar */}
+        <Navigation
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
       </div>
 
       {/* Interactive System Tray Simulation Modal */}
@@ -282,7 +341,7 @@ export default function App() {
         onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
         liveStats={liveStats}
         onOpenSettings={() => setActiveTab('settings')}
-        onRestore={() => setCanvasMode('portrait_9_16')}
+        onRestore={() => setIsTrayModalOpen(false)}
         onShowToast={(t, m) => addToast(t, m, 'info')}
       />
 

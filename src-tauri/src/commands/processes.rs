@@ -10,3 +10,8 @@ pub fn get_process_network_usage() -> Vec<ProcessNetworkUsage> {
 pub fn reset_process_stats(_pid: Option<u32>) -> bool {
     true
 }
+
+#[command]
+pub fn toggle_process_block(_exe_name: String, _block: bool, _pid: Option<u32>) -> bool {
+    true
+}

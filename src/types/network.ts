@@ -87,6 +87,7 @@ export interface ProcessNetworkUsage {
   totalBytes: number;
   connectionCount: number;
   status: 'active' | 'idle' | 'terminated';
+  isBlocked?: boolean;
   startTime: number;
   recentSpeedHistory: { time: number; down: number; up: number }[];
   connections: SocketConnection[];
@@ -132,9 +133,9 @@ export interface AppSettings {
   appearance: {
     theme: 'dark' | 'light' | 'system';
     accentColor: string;
-    defaultCanvasMode: 'portrait_9_16' | 'standard_desktop' | 'expanded_desktop';
+    defaultCanvasMode: 'portrait_9_16';
     chartStyle: 'area' | 'line';
   };
 }
 
-export type CanvasMode = 'portrait_9_16' | 'standard_desktop' | 'expanded_desktop' | 'maximized';
+export type CanvasMode = 'portrait_9_16';

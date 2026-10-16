@@ -15,6 +15,7 @@ pub struct ProcessNetworkUsage {
     pub total_bytes: u64,
     pub connection_count: u32,
     pub status: String,
+    pub is_blocked: bool,
     pub start_time: u64,
     pub recent_speed_history: Vec<SpeedSample>,
 }
@@ -50,6 +51,7 @@ impl ProcessNetworkUsage {
                 total_bytes: 718 * 1024 * 1024,
                 connection_count: 16,
                 status: "active".to_string(),
+                is_blocked: false,
                 start_time: now - 3600 * 1000 * 3,
                 recent_speed_history: vec![],
             },
@@ -67,6 +69,7 @@ impl ProcessNetworkUsage {
                 total_bytes: 414 * 1024 * 1024,
                 connection_count: 8,
                 status: "active".to_string(),
+                is_blocked: false,
                 start_time: now - 3600 * 1000 * 4,
                 recent_speed_history: vec![],
             },

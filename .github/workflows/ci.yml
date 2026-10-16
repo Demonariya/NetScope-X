@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-check:
+    name: Frontend Lint & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: TypeScript typecheck & lint
+        run: npm run lint
+
+      - name: Run unit & responsive tests
+        run: npm test
+
+      - name: Build frontend production bundle
+        run: npm run build
+
+  rust-check:
+    name: Rust Formatting, Clippy & Tests
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust formatting check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
+      - name: Rust Clippy linter
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Run Rust unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  build-windows-ci:
+    name: Build Windows x64 Binary
+    needs: [frontend-check, rust-check]
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Set up stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build frontend production assets
+        run: npm run build
+
+      - name: Compile Windows Tauri desktop executable
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release
+
+      - name: Verify build artifact existence
+        shell: bash
+        run: |
+          if [ -f "src-tauri/target/release/netscope-x.exe" ]; then
+            echo "Artifact successfully compiled: src-tauri/target/release/netscope-x.exe"
+          else
+            echo "Error: Windows executable not found!"
+            exit 1
+          fi
+
+      - name: Upload CI workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netscope-x-windows-x64-ci-${{ github.sha }}
+          path: src-tauri/target/release/netscope-x.exe
+          retention-days: 14
+          if-no-files-found: error

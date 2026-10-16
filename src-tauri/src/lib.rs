@@ -24,6 +24,7 @@ pub fn run() {
             get_active_connections,
             get_process_network_usage,
             reset_process_stats,
+            toggle_process_block,
             get_traffic_history,
             clear_history,
             get_settings,

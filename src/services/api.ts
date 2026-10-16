@@ -88,6 +88,20 @@ export const api = {
     return res.json();
   },
 
+  async toggleBlockProcess(exeName: string, block: boolean, pid?: number): Promise<{ success: boolean; isBlocked: boolean; exeName: string }> {
+    if (isTauri) {
+      const res = await tauriInvoke<boolean>('toggle_process_block', { exe_name: exeName, block, pid });
+      if (res !== null) return { success: true, isBlocked: block, exeName };
+    }
+    const res = await fetch('/api/processes/block', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exeName, block, pid }),
+    });
+    if (!res.ok) throw new Error('Failed to update process firewall rule');
+    return res.json();
+  },
+
   async getConnections(): Promise<SocketConnection[]> {
     if (isTauri) {
       const res = await tauriInvoke<SocketConnection[]>('get_active_connections');

@@ -18,6 +18,20 @@ if (!fs.existsSync(DATA_DIR)) {
 
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const HISTORY_FILE = path.join(DATA_DIR, 'history.json');
+const BLOCKED_FILE = path.join(DATA_DIR, 'blocked_apps.json');
+
+const blockedExes = new Set<string>();
+try {
+  if (fs.existsSync(BLOCKED_FILE)) {
+    const raw = fs.readFileSync(BLOCKED_FILE, 'utf-8');
+    const list = JSON.parse(raw);
+    if (Array.isArray(list)) {
+      list.forEach(exe => blockedExes.add(String(exe).toLowerCase()));
+    }
+  }
+} catch (e) {
+  console.warn('Failed to load blocked apps:', e);
+}
 
 // Default Settings
 const defaultSettings = {
@@ -462,7 +476,8 @@ function simulateProcessDeltas(elapsedSec: number) {
   let totalUp = 0;
 
   trackedProcesses.forEach(proc => {
-    if (proc.status === 'idle') {
+    const isBlocked = blockedExes.has(proc.exeName.toLowerCase());
+    if (proc.status === 'idle' || isBlocked) {
       proc.recentSpeeds.push({ time: Date.now(), down: 0, up: 0 });
       if (proc.recentSpeeds.length > 30) proc.recentSpeeds.shift();
       return;
@@ -636,12 +651,48 @@ app.get('/api/processes', (req, res) => {
       totalBytes: proc.sessionDown + proc.sessionUp,
       connectionCount: proc.connectionCount,
       status: proc.status,
+      isBlocked: blockedExes.has(proc.exeName.toLowerCase()),
       startTime: proc.startTime,
       recentSpeedHistory: proc.recentSpeeds,
       connections: proc.connections,
     };
   });
   res.json(result);
+});
+
+app.post('/api/processes/block', (req, res) => {
+  const { exeName, block } = req.body;
+  if (!exeName) {
+    return res.status(400).json({ error: 'exeName is required' });
+  }
+
+  const key = String(exeName).toLowerCase();
+  const shouldBlock = Boolean(block);
+
+  if (shouldBlock) {
+    blockedExes.add(key);
+  } else {
+    blockedExes.delete(key);
+  }
+
+  // Also zero out current speed in tracked processes if blocked
+  trackedProcesses.forEach(proc => {
+    if (proc.exeName.toLowerCase() === key && shouldBlock) {
+      proc.recentSpeeds.push({ time: Date.now(), down: 0, up: 0 });
+    }
+  });
+
+  try {
+    fs.writeFileSync(BLOCKED_FILE, JSON.stringify([...blockedExes], null, 2));
+  } catch (e) {
+    console.error('Failed to persist blocked apps:', e);
+  }
+
+  res.json({ success: true, exeName, isBlocked: shouldBlock, blockedCount: blockedExes.size });
+});
+
+app.get('/api/processes/blocked', (req, res) => {
+  res.json([...blockedExes]);
 });
 
 app.post('/api/processes/reset', (req, res) => {
