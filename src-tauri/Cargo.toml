@@ -48,6 +48,3 @@ strip = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(desktop)'] }
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(desktop)'] }
