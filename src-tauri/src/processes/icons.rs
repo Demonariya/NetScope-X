@@ -1,16 +1,3 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
-
-lazy_static_or_local! {
-    static ref ICON_CACHE: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
-}
-
-macro_rules! lazy_static_or_local {
-    ($($t:tt)*) => {
-        // Safe thread-local / mutex cache
-    };
-}
-
 pub struct IconExtractor;
 
 impl IconExtractor {
