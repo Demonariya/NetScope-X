@@ -60,7 +60,8 @@ impl ProcessNetworkUsage {
                 name: "Discord.exe".to_string(),
                 friendly_name: "Discord".to_string(),
                 exe_name: "Discord.exe".to_string(),
-                full_path: "C:\\Users\\User\\AppData\\Local\\Discord\\app-1.0.9168\\Discord.exe".to_string(),
+                full_path: "C:\\Users\\User\\AppData\\Local\\Discord\\app-1.0.9168\\Discord.exe"
+                    .to_string(),
                 icon: "".to_string(),
                 download_bps: 125_000,
                 upload_bps: 85_000,

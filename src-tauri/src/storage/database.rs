@@ -1,6 +1,6 @@
+use crate::storage::migrations::apply_migrations;
 use rusqlite::{Connection, Result};
 use std::path::Path;
-use crate::storage::migrations::apply_migrations;
 
 pub struct Database {
     conn: Connection,

@@ -1,6 +1,6 @@
+use crate::monitoring::etw::EtwNetworkPacketEvent;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use crate::monitoring::etw::EtwNetworkPacketEvent;
 
 pub struct ProcessAttributionEngine {
     byte_counters: Mutex<HashMap<u32, (u64, u64)>>, // (down_bytes, up_bytes)

@@ -1,5 +1,5 @@
-use tauri::command;
 use crate::processes::enumeration::ProcessNetworkUsage;
+use tauri::command;
 
 #[command]
 pub fn get_process_network_usage() -> Vec<ProcessNetworkUsage> {

@@ -1,7 +1,7 @@
-use tauri::command;
 use crate::network::adapters::NetworkAdapter;
 use crate::network::connections::SocketConnectionRecord;
 use crate::network::ping::{PingProbeResult, PingService};
+use tauri::command;
 
 #[command]
 pub fn get_network_adapters() -> Vec<NetworkAdapter> {

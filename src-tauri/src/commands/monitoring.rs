@@ -1,5 +1,5 @@
-use tauri::command;
 use crate::monitoring::collector::{LiveNetworkStats, MonitoringCollector};
+use tauri::command;
 
 #[command]
 pub fn get_live_network_stats() -> LiveNetworkStats {

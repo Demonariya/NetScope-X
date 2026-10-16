@@ -1,6 +1,6 @@
+use crate::settings::config::AppConfig;
 use std::fs;
 use std::path::Path;
-use crate::settings::config::AppConfig;
 
 pub struct SettingsPersistence;
 

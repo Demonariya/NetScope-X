@@ -29,7 +29,7 @@ pub fn run() {
             clear_history,
             get_settings,
             save_settings,
-            system_tray_action
+            system_tray_action,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NetScope X desktop suite");

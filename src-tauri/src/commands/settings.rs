@@ -1,5 +1,5 @@
-use tauri::command;
 use crate::settings::config::AppConfig;
+use tauri::command;
 
 #[command]
 pub fn get_settings() -> AppConfig {

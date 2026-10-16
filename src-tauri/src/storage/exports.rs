@@ -4,7 +4,8 @@ pub struct DataExporter;
 
 impl DataExporter {
     pub fn to_csv(entries: &[TrafficHistoryEntry]) -> String {
-        let mut csv = String::from("Timestamp,Date,Hour,DownloadBytes,UploadBytes,TotalBytes,TopApp\n");
+        let mut csv =
+            String::from("Timestamp,Date,Hour,DownloadBytes,UploadBytes,TotalBytes,TopApp\n");
         for e in entries {
             csv.push_str(&format!(
                 "{},{},{},{},{},{},\"{}\"\n",
