@@ -9,9 +9,7 @@ pub fn apply_monitoring_state<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
 
     if enabled {
         let session_name = format!("NetScopeX-{}", std::process::id());
-        if let Err(error) =
-            crate::monitoring::etw::EtwSessionManager::start_session(&session_name)
-        {
+        if let Err(error) = crate::monitoring::etw::EtwSessionManager::start_session(&session_name) {
             eprintln!("NetScope X per-process ETW telemetry is unavailable: {error}");
         }
     } else if let Err(error) = crate::monitoring::etw::EtwSessionManager::stop_session() {
