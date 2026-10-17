@@ -9,7 +9,7 @@ on:
       tag_name:
         description: 'Tag name for manual release (e.g. v1.0.0)'
         required: false
-        default: ''
+        default: 'v0.0.3'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -39,6 +39,33 @@ jobs:
         with:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
+
+      - name: Validate release tag and application versions
+        shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ github.event.inputs.tag_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:REQUESTED_TAG
+          if ([string]::IsNullOrWhiteSpace($tag)) { $tag = $env:REF_NAME }
+          $tagVersion = $tag -replace '^v', ''
+
+          $tauri = Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json
+          $package = Get-Content 'package.json' -Raw | ConvertFrom-Json
+          $cargoText = Get-Content 'src-tauri/Cargo.toml' -Raw
+          if ($cargoText -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
+            throw 'Unable to read the Rust package version from src-tauri/Cargo.toml.'
+          }
+          $cargoVersion = $Matches[1]
+          $versions = @([string]$tauri.version, [string]$package.version, [string]$cargoVersion) | Select-Object -Unique
+          if ($versions.Count -ne 1) {
+            throw "Version mismatch: tauri=$($tauri.version), npm=$($package.version), cargo=$cargoVersion."
+          }
+          if ($tagVersion -ne [string]$tauri.version) {
+            throw "Release tag '$tag' does not match application version '$($tauri.version)'. Update all package versions or use tag v$($tauri.version)."
+          }
+          Write-Host "Validated release tag $tag against Tauri, npm and Cargo version $tagVersion."
 
       - name: Install Tauri CLI v2
         run: cargo install tauri-cli --version "^2.0.0" --locked

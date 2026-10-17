@@ -1,6 +1,6 @@
 [package]
 name = "netscope-x"
-version = "1.0.0"
+version = "0.0.3"
 description = "NetScope X — Premium Windows Network Intelligence Suite"
 authors = ["Ariya Ghanbari"]
 edition = "2021"

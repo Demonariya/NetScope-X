@@ -50,7 +50,7 @@ impl PingService {
         }
 
         if !success {
-            latency = 12.4; // Graceful minimum
+            latency = 0.0;
         }
 
         let now = std::time::SystemTime::now()
@@ -62,18 +62,18 @@ impl PingService {
             target: target.to_string(),
             host: target.to_string(),
             latency_ms: latency,
-            min_latency_ms: latency * 0.85,
-            max_latency_ms: latency * 1.25,
+            min_latency_ms: latency,
+            max_latency_ms: latency,
             avg_latency_ms: latency,
-            jitter_ms: 1.2,
-            packet_loss_percent: if success { 0.0 } else { 10.0 },
+            jitter_ms: 0.0,
+            packet_loss_percent: if success { 0.0 } else { 100.0 },
             status: if success {
                 "success".to_string()
             } else {
                 "timeout".to_string()
             },
             last_checked: now,
-            history: vec![latency * 0.95, latency * 1.05, latency],
+            history: if success { vec![latency] } else { Vec::new() },
         }
     }
 }
