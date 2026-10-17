@@ -5,6 +5,7 @@ pub mod processes;
 pub mod settings;
 pub mod storage;
 pub mod tray;
+pub mod windows_utils;
 
 use commands::*;
 
