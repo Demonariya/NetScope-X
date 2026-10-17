@@ -10,12 +10,16 @@ pub fn get_process_network_usage() -> Result<Vec<ProcessNetworkUsage>, String> {
 
 #[command]
 pub fn reset_process_stats(pid: Option<u32>) -> Result<bool, String> {
-    if let Some(pid) = pid {
-        return Err(format!(
-            "Per-process byte counters are not being collected yet; cannot reset PID {pid} statistics."
-        ));
+    match pid {
+        Some(pid) if pid == 0 => {
+            return Err("PID 0 cannot be reset as an application process.".to_string());
+        }
+        Some(pid) => ProcessNetworkUsage::reset_traffic_counters(Some(pid))?,
+        None => {
+            MonitoringCollector::reset_session_counters()?;
+            ProcessNetworkUsage::reset_traffic_counters(None)?;
+        }
     }
-    MonitoringCollector::reset_session_counters()?;
     Ok(true)
 }
 

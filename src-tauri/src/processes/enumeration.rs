@@ -41,6 +41,8 @@ pub struct SpeedSample {
 
 #[derive(Default)]
 struct ProcessTrafficSample {
+    baseline_download_total: u64,
+    baseline_upload_total: u64,
     last_download_total: u64,
     last_upload_total: u64,
     last_sample_ms: u64,
@@ -69,6 +71,10 @@ fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<()
     for process in processes {
         let (download_total, upload_total) = totals.get(&process.pid).copied().unwrap_or_default();
         let sample = previous.entry(process.pid).or_default();
+        if sample.last_sample_ms == 0 {
+            sample.baseline_download_total = download_total;
+            sample.baseline_upload_total = upload_total;
+        }
         let elapsed_ms = now_ms.saturating_sub(sample.last_sample_ms);
 
         if sample.last_sample_ms > 0 && elapsed_ms > 0 {
@@ -102,9 +108,13 @@ fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<()
 
         process.download_bps = sample.download_bps;
         process.upload_bps = sample.upload_bps;
-        process.session_download_bytes = download_total;
-        process.session_upload_bytes = upload_total;
-        process.total_bytes = download_total.saturating_add(upload_total);
+        process.session_download_bytes =
+            download_total.saturating_sub(sample.baseline_download_total);
+        process.session_upload_bytes =
+            upload_total.saturating_sub(sample.baseline_upload_total);
+        process.total_bytes = process
+            .session_download_bytes
+            .saturating_add(process.session_upload_bytes);
         process.traffic_available = traffic_available;
         process.recent_speed_history.clone_from(&sample.history);
     }
@@ -113,6 +123,52 @@ fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<()
 }
 
 impl ProcessNetworkUsage {
+    /// Reset measured per-process byte baselines. A PID reset affects only that PID;
+    /// resetting all processes clears the counters for all currently tracked PIDs.
+    pub fn reset_traffic_counters(pid: Option<u32>) -> Result<(), String> {
+        let totals = EtwSessionManager::process_byte_totals();
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let mut samples = PROCESS_SAMPLES
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .map_err(|_| "Per-process network sample state is unavailable.".to_string())?;
+
+        match pid {
+            Some(pid) => {
+                let (download_total, upload_total) = totals.get(&pid).copied().unwrap_or_default();
+                let sample = samples.entry(pid).or_default();
+                sample.baseline_download_total = download_total;
+                sample.baseline_upload_total = upload_total;
+                sample.last_download_total = download_total;
+                sample.last_upload_total = upload_total;
+                sample.last_sample_ms = now_ms;
+                sample.download_bps = 0;
+                sample.upload_bps = 0;
+                sample.history.clear();
+            }
+            None => {
+                for (pid, sample) in samples.iter_mut() {
+                    let (download_total, upload_total) = totals
+                        .get(pid)
+                        .copied()
+                        .unwrap_or((sample.last_download_total, sample.last_upload_total));
+                    sample.baseline_download_total = download_total;
+                    sample.baseline_upload_total = upload_total;
+                    sample.last_download_total = download_total;
+                    sample.last_upload_total = upload_total;
+                    sample.last_sample_ms = now_ms;
+                    sample.download_bps = 0;
+                    sample.upload_bps = 0;
+                    sample.history.clear();
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Enumerate live Windows processes, their current TCP/UDP endpoints, firewall state,
     /// and ETW-attributed byte totals. Per-process values are marked unavailable if ETW fails.
     pub fn enumerate_monitored_processes() -> Result<Vec<Self>, String> {

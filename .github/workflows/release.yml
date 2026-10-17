@@ -23,10 +23,13 @@ jobs:
     name: Build & Publish Windows Release
     runs-on: windows-latest
     steps:
-      - name: Check out tagged commit
+      - name: Check out release source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # On workflow_dispatch this is the chosen branch (normally main);
+          # on a tag push it is the exact tagged source commit.
+          ref: ${{ github.ref }}
 
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
@@ -189,6 +192,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.tag_info.outputs.tag }}
+          # Manual dispatch on main creates a missing version tag from main;
+          # tag-triggered runs preserve the commit identified by the pushed tag.
+          target_commitish: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || github.sha }}
           name: NetScope X ${{ steps.tag_info.outputs.tag }}
           draft: false
           prerelease: false
