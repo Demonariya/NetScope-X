@@ -11,7 +11,7 @@ pub fn get_process_network_usage() -> Result<Vec<ProcessNetworkUsage>, String> {
 #[command]
 pub fn reset_process_stats(pid: Option<u32>) -> Result<bool, String> {
     match pid {
-        Some(pid) if pid == 0 => {
+        Some(0) => {
             return Err("PID 0 cannot be reset as an application process.".to_string());
         }
         Some(pid) => ProcessNetworkUsage::reset_traffic_counters(Some(pid))?,
