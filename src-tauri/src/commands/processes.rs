@@ -1,6 +1,6 @@
 use crate::monitoring::collector::MonitoringCollector;
 use crate::processes::enumeration::ProcessNetworkUsage;
-use crate::windows_utils::run_powershell;
+use crate::windows_utils::run_powershell_elevated;
 use tauri::command;
 
 #[command]
@@ -40,49 +40,49 @@ pub fn toggle_process_block(
     let script = format!(
         r#"
 $targetPid = {process_id}
-$ruleOut = "NetScopeX-Blocked-$targetPid-out"
-$ruleIn = "NetScopeX-Blocked-$targetPid-in"
-if (-not {block_value}) {{
-  Get-NetFirewallRule -DisplayName $ruleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction Stop
-  Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction Stop
-  [pscustomobject]@{{ success = $true }} | ConvertTo-Json -Compress
-  exit 0
-}}
+$legacyRuleOut = "NetScopeX-Blocked-$targetPid-out"
+$legacyRuleIn = "NetScopeX-Blocked-$targetPid-in"
 $process = Get-CimInstance Win32_Process -Filter "ProcessId = $targetPid" -ErrorAction Stop
 if ($null -eq $process) {{ throw "Process PID $targetPid is no longer running." }}
 $program = [string]$process.ExecutablePath
 if ([string]::IsNullOrWhiteSpace($program) -or -not (Test-Path -LiteralPath $program -PathType Leaf)) {{
   throw "Windows did not provide a valid executable path for PID $targetPid."
 }}
-try {{
-  Get-NetFirewallRule -DisplayName $ruleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction Stop
-  Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction Stop
-  New-NetFirewallRule -DisplayName $ruleOut -Direction Outbound -Program $program -Action Block -Profile Any -Enabled True -ErrorAction Stop | Out-Null
-  New-NetFirewallRule -DisplayName $ruleIn -Direction Inbound -Program $program -Action Block -Profile Any -Enabled True -ErrorAction Stop | Out-Null
-  [pscustomobject]@{{ success = $true }} | ConvertTo-Json -Compress
-}} catch {{
+$program = [System.IO.Path]::GetFullPath($program)
+$hashAlgorithm = [System.Security.Cryptography.SHA256]::Create()
+$programHash = [BitConverter]::ToString($hashAlgorithm.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($program.ToLowerInvariant()))).Replace('-', '').ToLowerInvariant()
+$hashAlgorithm.Dispose()
+$ruleOut = "NetScopeX-Blocked-$programHash-out"
+$ruleIn = "NetScopeX-Blocked-$programHash-in"
+if (-not {block_value}) {{
   Get-NetFirewallRule -DisplayName $ruleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
   Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-  throw
+  Get-NetFirewallRule -DisplayName $legacyRuleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  Get-NetFirewallRule -DisplayName $legacyRuleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  [pscustomobject]@{{ success = $true }} | ConvertTo-Json -Compress
+}} else {{
+  try {{
+    Get-NetFirewallRule -DisplayName $ruleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    Get-NetFirewallRule -DisplayName $legacyRuleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    Get-NetFirewallRule -DisplayName $legacyRuleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    New-NetFirewallRule -DisplayName $ruleOut -Direction Outbound -Program $program -Action Block -Profile Any -Enabled True -ErrorAction Stop | Out-Null
+    New-NetFirewallRule -DisplayName $ruleIn -Direction Inbound -Program $program -Action Block -Profile Any -Enabled True -ErrorAction Stop | Out-Null
+    [pscustomobject]@{{ success = $true }} | ConvertTo-Json -Compress
+  }} catch {{
+    Get-NetFirewallRule -DisplayName $ruleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    throw
+  }}
 }}
 "#,
         block_value = if block { "$true" } else { "$false" }
     );
-    let output = run_powershell(&script).map_err(|error| {
-        if error.to_lowercase().contains("access is denied")
-            || error.to_lowercase().contains("access denied")
-        {
-            "Windows Firewall access was denied. Close NetScope X and relaunch it with Run as administrator, then retry."
-                .to_string()
-        } else {
-            format!("Windows Firewall operation failed: {error}")
-        }
-    })?;
-    let response: serde_json::Value = serde_json::from_str(&output)
-        .map_err(|error| format!("Invalid Windows Firewall response: {error}"))?;
-    if response.get("success").and_then(serde_json::Value::as_bool) == Some(true) {
+    let output = run_powershell_elevated(&script)
+        .map_err(|error| format!("Windows Firewall operation failed: {error}"))?;
+    if output.trim() == "success" {
         Ok(true)
     } else {
-        Err("Windows Firewall did not confirm the requested rule change.".to_string())
+        Err(format!("Windows Firewall operation did not complete successfully: {output}"))
     }
 }

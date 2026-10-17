@@ -87,5 +87,6 @@ pub fn system_tray_action(app: AppHandle, action: String) -> Result<bool, String
 
 #[command]
 pub fn exit_app(app: AppHandle) {
+    let _ = crate::monitoring::etw::EtwSessionManager::stop_session();
     app.exit(0);
 }
