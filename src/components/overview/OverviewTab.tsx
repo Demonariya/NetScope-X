@@ -98,8 +98,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 <span className="font-semibold text-xs text-slate-100 truncate">
                   {activeAdapter?.name || 'Network Adapter'}
                 </span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium shrink-0">
-                  Connected
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full border font-medium shrink-0 ${
+                  activeAdapter?.status === 'connected'
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                    : activeAdapter?.status === 'connecting'
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                    : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                }`}>
+                  {activeAdapter?.status === 'connected' ? 'Connected' : activeAdapter?.status === 'connecting' ? 'Connecting' : 'Disconnected'}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 truncate">
@@ -132,7 +138,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               Local IPv4
             </span>
             <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
-              {activeAdapter?.localIPv4 || '192.168.1.145'}
+              {activeAdapter?.localIPv4 || '--'}
             </span>
           </div>
 
@@ -141,7 +147,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               Gateway
             </span>
             <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
-              {activeAdapter?.gateway || '192.168.1.1'}
+              {activeAdapter?.gateway || '--'}
             </span>
           </div>
 
@@ -151,8 +157,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             </span>
             <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
               {activeAdapter?.type === 'wifi'
-                ? `${activeAdapter.ssid || 'Wi-Fi'} (${activeAdapter.signalPercent || 92}%)`
-                : `${activeAdapter?.speedMbps || 2500} Mbps`}
+                ? `${activeAdapter.ssid || 'SSID unavailable'} (${activeAdapter.signalPercent != null ? `${activeAdapter.signalPercent}%` : 'signal unavailable'})`
+                : activeAdapter?.speedMbps ? `${activeAdapter.speedMbps} Mbps` : '--'}
             </span>
           </div>
 
@@ -161,7 +167,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               MAC Address
             </span>
             <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
-              {activeAdapter?.macAddress || '04:7C:16:B3:99:A1'}
+              {activeAdapter?.macAddress || '--'}
             </span>
           </div>
         </div>
@@ -185,17 +191,17 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
           <div className="flex items-baseline gap-2 mt-1.5">
             <span className="text-3xl font-bold tracking-tight text-slate-100 font-mono tabular-nums">
-              {downSpeed.value}
+              {liveStats ? downSpeed.value : '--'}
             </span>
             <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 font-mono">
-              {downSpeed.unit}
+              {liveStats ? downSpeed.unit : ''}
             </span>
           </div>
 
           <div className="mt-2.5 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
-            <span>Today's Total:</span>
+            <span>Measured Today:</span>
             <span className="font-mono text-slate-200 font-medium">
-              {formatBytes(liveStats?.dailyDownloadBytes || 0)}
+              {liveStats ? formatBytes(liveStats.dailyDownloadBytes) : '--'}
             </span>
           </div>
         </div>
@@ -216,17 +222,17 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
           <div className="flex items-baseline gap-2 mt-1.5">
             <span className="text-3xl font-bold tracking-tight text-slate-100 font-mono tabular-nums">
-              {upSpeed.value}
+              {liveStats ? upSpeed.value : '--'}
             </span>
             <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-teal-500/10 text-teal-400 font-mono">
-              {upSpeed.unit}
+              {liveStats ? upSpeed.unit : ''}
             </span>
           </div>
 
           <div className="mt-2.5 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
             <span>Today's Total:</span>
             <span className="font-mono text-slate-200 font-medium">
-              {formatBytes(liveStats?.dailyUploadBytes || 0)}
+              {liveStats ? formatBytes(liveStats.dailyUploadBytes) : '--'}
             </span>
           </div>
         </div>
@@ -370,11 +376,11 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                   : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
               }`}>
-                {(pingResult?.latencyMs || 0) < 40 ? 'Optimal' : (pingResult?.latencyMs || 0) < 100 ? 'Good' : 'High'}
+                {!pingResult ? 'Unavailable' : pingResult.status !== 'success' ? 'Timeout' : latencyMs < 40 ? 'Optimal' : latencyMs < 100 ? 'Good' : 'High'}
               </span>
             </div>
             <span className="text-xl font-bold font-mono text-emerald-400 tabular-nums block mt-0.5">
-              {formatLatency(latencyMs)}
+              {pingResult ? (pingResult.status === 'success' ? formatLatency(latencyMs) : 'Timeout') : '--'}
             </span>
           </div>
 
@@ -383,7 +389,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               Average Ping
             </span>
             <span className="text-base font-semibold font-mono text-slate-200 tabular-nums block mt-1">
-              {formatLatency(avgLatencyMs)}
+              {pingResult ? (pingResult.status === 'success' ? formatLatency(avgLatencyMs) : 'Timeout') : '--'}
             </span>
           </div>
 
@@ -392,7 +398,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               Min / Max
             </span>
             <span className="text-xs font-semibold font-mono text-slate-200 tabular-nums block mt-1">
-              {pingResult ? `${minLatencyMs.toFixed(0)} / ${maxLatencyMs.toFixed(0)} ms` : '--'}
+              {pingResult ? (pingResult.status === 'success' ? `${minLatencyMs.toFixed(0)} / ${maxLatencyMs.toFixed(0)} ms` : 'Timeout') : '--'}
             </span>
           </div>
 

@@ -94,6 +94,9 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
 
   return (
     <div className="space-y-3 p-3 max-w-full pb-16 w-full">
+      <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+        <p className="text-[10px] leading-relaxed text-amber-200/90">The process and socket lists are read from Windows. Per-application byte rates are not yet available from the native ETW collector, so this view deliberately does not invent per-process traffic totals.</p>
+      </div>
       {/* Header & Controls Strip */}
       <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 shadow-sm space-y-2.5">
         <div className="flex items-center justify-between gap-2">

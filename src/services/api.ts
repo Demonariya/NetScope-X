@@ -164,6 +164,12 @@ export const api = {
     });
   },
 
+  async resetNetworkSessionStats(): Promise<boolean> {
+    const success = await nativeCommand<boolean>('reset_network_session_stats');
+    if (!success) throw new Error('The native backend did not confirm resetting session counters.');
+    return true;
+  },
+
   async resetHistory(): Promise<{ success: boolean }> {
     if (isTauri) {
       const success = await nativeCommand<boolean>('clear_history');

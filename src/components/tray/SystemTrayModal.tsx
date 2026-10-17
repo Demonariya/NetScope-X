@@ -20,7 +20,7 @@ interface SystemTrayModalProps {
   liveStats: NetworkStats | null;
   onOpenSettings: () => void;
   onRestore: () => void;
-  onShowToast: (title: string, message?: string) => void;
+  onExit: () => void;
 }
 
 export const SystemTrayModal: React.FC<SystemTrayModalProps> = ({
@@ -31,7 +31,7 @@ export const SystemTrayModal: React.FC<SystemTrayModalProps> = ({
   liveStats,
   onOpenSettings,
   onRestore,
-  onShowToast,
+  onExit,
 }) => {
   if (!isOpen) return null;
 
@@ -45,7 +45,7 @@ export const SystemTrayModal: React.FC<SystemTrayModalProps> = ({
         <div className="px-3.5 py-2.5 bg-slate-950 flex items-center justify-between border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2">
             <Radio className="w-4 h-4 text-sky-400 shrink-0" />
-            <span className="text-xs font-semibold text-slate-100">Windows System Tray Preview</span>
+            <span className="text-xs font-semibold text-slate-100">System Tray Controls</span>
           </div>
           <button
             onClick={onClose}
@@ -67,23 +67,23 @@ export const SystemTrayModal: React.FC<SystemTrayModalProps> = ({
                 <div>
                   <span className="font-semibold block text-slate-200 text-xs">NetScope X</span>
                   <span className="text-[10px] text-slate-400">
-                    {isMonitoring ? 'Monitoring Active (ETW)' : 'Monitoring Suspended'}
+                    {isMonitoring ? 'Monitoring Active' : 'Monitoring Suspended'}
                   </span>
                 </div>
               </div>
               <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 font-mono shrink-0">
-                2.5 GbE
+                {liveStats?.activeAdapterId || 'No interface'}
               </span>
             </div>
 
             <div className="grid grid-cols-2 gap-2 pt-2 text-xs font-mono">
               <div className="p-2 rounded bg-slate-900 border border-slate-800">
                 <span className="text-[10px] text-slate-500 uppercase block font-sans">Download</span>
-                <span className="text-sky-400 font-bold">{down.full}</span>
+                <span className="text-sky-400 font-bold">{liveStats ? down.full : '--'}</span>
               </div>
               <div className="p-2 rounded bg-slate-900 border border-slate-800">
                 <span className="text-[10px] text-slate-500 uppercase block font-sans">Upload</span>
-                <span className="text-teal-400 font-bold">{up.full}</span>
+                <span className="text-teal-400 font-bold">{liveStats ? up.full : '--'}</span>
               </div>
             </div>
           </div>
@@ -103,13 +103,7 @@ export const SystemTrayModal: React.FC<SystemTrayModalProps> = ({
             </button>
 
             <button
-              onClick={() => {
-                onToggleMonitoring();
-                onShowToast(
-                  isMonitoring ? 'Monitoring Paused' : 'Monitoring Resumed',
-                  isMonitoring ? 'Packet counters frozen' : 'Active ETW stream live'
-                );
-              }}
+              onClick={() => { void onToggleMonitoring(); }}
               className="w-full px-3 py-2 text-left rounded-lg hover:bg-slate-800 flex items-center gap-2.5 transition-colors text-slate-200"
             >
               {isMonitoring ? (
@@ -139,10 +133,7 @@ export const SystemTrayModal: React.FC<SystemTrayModalProps> = ({
             <div className="my-1 border-t border-slate-800" />
 
             <button
-              onClick={() => {
-                onClose();
-                onShowToast('NetScope X Background', 'Application remains active in system tray');
-              }}
+              onClick={onExit}
               className="w-full px-3 py-2 text-left rounded-lg hover:bg-red-500/20 text-red-400 flex items-center gap-2.5 transition-colors"
             >
               <Power className="w-4 h-4 shrink-0" />

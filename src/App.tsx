@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { TitleBar } from './components/layout/TitleBar';
 import { Navigation, TabType } from './components/layout/Navigation';
 import { OverviewTab } from './components/overview/OverviewTab';
@@ -18,7 +19,7 @@ import {
   TrafficHistoryRecord,
   AppSettings,
 } from './types/network';
-import { api } from './services/api';
+import { api, DEFAULT_SETTINGS, isTauri } from './services/api';
 import { formatTime, formatLatency } from './utils/formatters';
 import { DEFAULT_ACCENT_COLOR, getAccentCssVariables, normalizeHexColor } from './utils/appearance';
 
@@ -90,6 +91,23 @@ export default function App() {
     }
   }, [accentColor]);
 
+  // Keep React synchronized with the real native tray's monitoring toggle.
+  useEffect(() => {
+    if (!isTauri) return;
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    void listen<boolean>('monitoring-toggled', event => setIsMonitoring(event.payload))
+      .then(stop => {
+        if (cancelled) stop();
+        else unlisten = stop;
+      })
+      .catch(error => console.warn('Could not listen for tray monitoring events:', error));
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   // Core telemetry state
   const [adapters, setAdapters] = useState<NetworkAdapter[]>([]);
   const [selectedAdapterId, setSelectedAdapterId] = useState<string>('auto');
@@ -114,79 +132,92 @@ export default function App() {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
-  // Initial Data Fetch
+  // Initial Data Fetch — a failed subsystem must not fabricate data or block other tabs.
   useEffect(() => {
     async function init() {
-      try {
-        const [adp, st, png, procs, conns, hist, cfg] = await Promise.all([
-          api.getAdapters(),
-          api.getLiveStats(),
-          api.getPing(),
-          api.getProcesses(),
-          api.getConnections(),
-          api.getHistory('today'),
-          api.getSettings(),
-        ]);
-        setAdapters(adp);
-        setLiveStats(st);
-        setPingResult(png);
-        setProcesses(procs);
-        setConnections(conns);
-        setHistory(hist);
-        setSettings(cfg);
-        let storedAccent: string | null = null;
+      const safeLoad = async <T,>(operation: Promise<T>, fallback: T, label: string): Promise<T> => {
         try {
-          storedAccent = normalizeHexColor(localStorage.getItem('netscope_accent_color'));
-        } catch {
-          // Prefer the in-memory/default accent when storage is unavailable.
+          return await operation;
+        } catch (error) {
+          console.error(`${label} load failed:`, error);
+          const detail = error instanceof Error ? error.message : String(error);
+          addToast(`${label} unavailable`, detail, 'error');
+          return fallback;
         }
-        const configuredAccent = normalizeHexColor(cfg?.appearance?.accentColor);
-        if (!storedAccent && configuredAccent) setAccentColor(configuredAccent);
-        if (cfg?.diagnostics?.activePingTarget) {
-          setActivePingTarget(cfg.diagnostics.activePingTarget);
-        }
-        if (cfg?.appearance?.theme) {
-          const localSaved = localStorage.getItem('netscope_theme');
-          if (!localSaved) {
-            setTheme(cfg.appearance.theme);
-          }
-        }
-      } catch (err) {
-        console.error('Initial telemetry load failed:', err);
+      };
+
+      const [adp, st, png, procs, conns, hist, cfg] = await Promise.all([
+        safeLoad<NetworkAdapter[]>(api.getAdapters(), [], 'Network adapters'),
+        safeLoad<NetworkStats | null>(api.getLiveStats(selectedAdapterId), null, 'Network counters'),
+        safeLoad<PingResult | null>(api.getPing(), null, 'Ping probe'),
+        safeLoad<ProcessNetworkUsage[]>(api.getProcesses(), [], 'Process list'),
+        safeLoad<SocketConnection[]>(api.getConnections(), [], 'Network sockets'),
+        safeLoad<TrafficHistoryRecord[]>(api.getHistory('today'), [], 'Traffic history'),
+        safeLoad<AppSettings>(api.getSettings(), DEFAULT_SETTINGS, 'Settings'),
+      ]);
+
+      setAdapters(adp);
+      setLiveStats(st);
+      setPingResult(png);
+      setProcesses(procs);
+      setConnections(conns);
+      setHistory(hist);
+      setSettings(cfg);
+
+      let storedAccent: string | null = null;
+      let localSavedTheme: string | null = null;
+      try {
+        storedAccent = normalizeHexColor(localStorage.getItem('netscope_accent_color'));
+        localSavedTheme = localStorage.getItem('netscope_theme');
+      } catch {
+        // Persisted appearance preferences are optional; runtime defaults remain usable.
       }
+      const configuredAccent = normalizeHexColor(cfg.appearance?.accentColor);
+      if (!storedAccent && configuredAccent) setAccentColor(configuredAccent);
+      if (cfg.diagnostics?.activePingTarget) setActivePingTarget(cfg.diagnostics.activePingTarget);
+      if (cfg.appearance?.theme && !localSavedTheme) setTheme(cfg.appearance.theme);
     }
-    init();
+    void init();
   }, []);
 
-  // Continuous Telemetry Polling Loop
+  // Poll actual Windows counters, processes, sockets, and the selected ping target.
   useEffect(() => {
     if (!isMonitoring) return;
 
     const interval = setInterval(async () => {
-      try {
-        const [st, procs, png] = await Promise.all([
-          api.getLiveStats(),
-          api.getProcesses(),
-          api.getPing(activePingTarget),
-        ]);
+      const [st, procs, png, conns] = await Promise.all([
+        api.getLiveStats(selectedAdapterId).catch(error => {
+          console.warn('Network counter sample failed:', error);
+          return null;
+        }),
+        api.getProcesses().catch(error => {
+          console.warn('Live process query failed:', error);
+          return null;
+        }),
+        api.getPing(activePingTarget).catch(error => {
+          console.warn('Ping probe failed:', error);
+          return null;
+        }),
+        api.getConnections().catch(error => {
+          console.warn('Socket query failed:', error);
+          return null;
+        }),
+      ]);
 
+      if (st) {
         setLiveStats(st);
-        setProcesses(procs);
-        setPingResult(png);
-
-        // Update rolling chart buffer
         setSpeedHistory(prev => {
           const nowStr = formatTime(st.timestamp);
-          const next = [...prev, { time: nowStr, downBps: st.downloadBps, upBps: st.uploadBps }];
-          return next.slice(-120); // Keep last 120 seconds
+          return [...prev, { time: nowStr, downBps: st.downloadBps, upBps: st.uploadBps }].slice(-120);
         });
-      } catch (err) {
-        console.warn('Telemetry cycle warning:', err);
       }
+      if (procs) setProcesses(procs);
+      if (png) setPingResult(png);
+      if (conns) setConnections(conns);
     }, settings?.monitoring.updateIntervalMs || 1000);
 
     return () => clearInterval(interval);
-  }, [isMonitoring, settings?.monitoring.updateIntervalMs, activePingTarget]);
+  }, [isMonitoring, settings?.monitoring.updateIntervalMs, activePingTarget, selectedAdapterId]);
 
   // Handle adapter selection
   const handleSelectAdapter = (id: string) => {
@@ -216,12 +247,20 @@ export default function App() {
     }
   };
 
-  // Reset process stats
+  // Reset measured session counters. Per-process resets are explicitly rejected until native attribution exists.
   const handleResetProcessStats = async (pid?: number) => {
-    await api.resetProcessStats(pid);
-    const updated = await api.getProcesses();
-    setProcesses(updated);
-    addToast('Process Stats Reset', pid ? `PID ${pid} counters cleared` : 'All process counters cleared', 'success');
+    try {
+      await api.resetProcessStats(pid);
+      const [updated, stats] = await Promise.all([
+        api.getProcesses(),
+        api.getLiveStats(selectedAdapterId),
+      ]);
+      setProcesses(updated);
+      setLiveStats(stats);
+      addToast('Counters Reset', 'Measured session counters have been reset.', 'success');
+    } catch (error) {
+      addToast('Reset Unavailable', error instanceof Error ? error.message : String(error), 'error');
+    }
   };
 
   // Toggle Block / Unblock process
@@ -312,28 +351,76 @@ export default function App() {
     await api.saveSettings(settingsToSave);
   };
 
-  // Reset session counters
+  // Reset measured network totals without deleting saved traffic history.
   const handleResetSession = async () => {
-    await api.resetHistory();
-    const st = await api.getLiveStats();
-    setLiveStats(st);
+    try {
+      await api.resetNetworkSessionStats();
+      setLiveStats(await api.getLiveStats(selectedAdapterId));
+      addToast('Session Reset', 'Counters will resume from the next real network sample.', 'success');
+    } catch (error) {
+      addToast('Session Reset Failed', error instanceof Error ? error.message : String(error), 'error');
+    }
   };
 
-  // Clear history
+  // Clear persisted real traffic history.
   const handleClearHistory = async () => {
-    await api.resetHistory();
-    const hist = await api.getHistory('today');
-    setHistory(hist);
+    try {
+      await api.resetHistory();
+      setHistory(await api.getHistory('today'));
+      addToast('History Cleared', 'Stored traffic history was deleted.', 'success');
+    } catch (error) {
+      addToast('History Clear Failed', error instanceof Error ? error.message : String(error), 'error');
+    }
   };
 
-  // Window controls
-  const handleMinimize = () => {
-    addToast('Minimized to Taskbar', 'NetScope X window hidden', 'info');
+  // Native desktop controls — these change the actual Tauri window instead of only showing a toast.
+  const handleToggleMonitoring = async () => {
+    const next = !isMonitoring;
+    try {
+      if (isTauri) await api.setMonitoringEnabled(next);
+      setIsMonitoring(next);
+      addToast(next ? 'Monitoring Resumed' : 'Monitoring Paused', next ? 'Live system sampling resumed.' : 'Live system sampling paused.', 'info');
+    } catch (error) {
+      addToast('Monitoring Control Failed', error instanceof Error ? error.message : String(error), 'error');
+    }
   };
 
-  const handleClose = () => {
-    setIsTrayModalOpen(true);
-    addToast('Window Minimized to Tray', 'Monitoring remains active in background', 'info');
+  const handleMinimize = async () => {
+    try {
+      await api.minimizeWindow();
+    } catch (error) {
+      addToast('Minimize Failed', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
+  const handleClose = async () => {
+    try {
+      if (settings?.startup?.minimizeToTrayOnClose !== false) {
+        await api.hideWindow();
+      } else {
+        await api.exitApp();
+      }
+    } catch (error) {
+      addToast('Close Failed', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
+  const handleRestoreWindow = async () => {
+    try {
+      await api.restoreWindow();
+      setIsTrayModalOpen(false);
+    } catch (error) {
+      addToast('Restore Failed', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
+  const handleExitApp = async () => {
+    setIsTrayModalOpen(false);
+    try {
+      await api.exitApp();
+    } catch (error) {
+      addToast('Exit Failed', error instanceof Error ? error.message : String(error), 'error');
+    }
   };
 
   return (
@@ -346,7 +433,7 @@ export default function App() {
         {/* Native Windows Custom Title Bar */}
         <TitleBar
           isMonitoring={isMonitoring}
-          onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
+          onToggleMonitoring={handleToggleMonitoring}
           onOpenTrayModal={() => setIsTrayModalOpen(true)}
           onMinimize={handleMinimize}
           onClose={handleClose}
@@ -428,11 +515,11 @@ export default function App() {
         isOpen={isTrayModalOpen}
         onClose={() => setIsTrayModalOpen(false)}
         isMonitoring={isMonitoring}
-        onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
+        onToggleMonitoring={handleToggleMonitoring}
         liveStats={liveStats}
         onOpenSettings={() => setActiveTab('settings')}
-        onRestore={() => setIsTrayModalOpen(false)}
-        onShowToast={(t, m) => addToast(t, m, 'info')}
+        onRestore={handleRestoreWindow}
+        onExit={handleExitApp}
       />
 
       {/* Toast Notification Container */}
