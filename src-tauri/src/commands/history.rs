@@ -1,21 +1,28 @@
-use crate::storage::history::TrafficHistoryEntry;
-use tauri::command;
+use crate::storage::database::Database;
+use crate::storage::history::{HistoryStorage, TrafficHistoryEntry};
+use tauri::{command, AppHandle, Manager};
 
-#[command]
-pub fn get_traffic_history(range: Option<String>) -> Vec<TrafficHistoryEntry> {
-    let _r = range.unwrap_or_else(|| "today".to_string());
-    vec![TrafficHistoryEntry {
-        id: "h1".to_string(),
-        timestamp: 1773000000,
-        date_str: "2026-10-15".to_string(),
-        hour_str: "14:00".to_string(),
-        download_bytes: 520 * 1024 * 1024,
-        upload_bytes: 85 * 1024 * 1024,
-        top_app: "Google Chrome".to_string(),
-    }]
+fn history_database_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let directory = app.path().app_data_dir()
+        .map_err(|error| format!("Cannot resolve application data directory: {error}"))?;
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Cannot create application data directory: {error}"))?;
+    Ok(directory.join("history.sqlite3"))
 }
 
 #[command]
-pub fn clear_history() -> bool {
-    true
+pub fn get_traffic_history(app: AppHandle, range: Option<String>) -> Result<Vec<TrafficHistoryEntry>, String> {
+    let database = Database::open(history_database_path(&app)?)
+        .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
+    HistoryStorage::get_history(database.connection(), range.as_deref().unwrap_or("today"))
+        .map_err(|error| format!("Cannot read traffic history: {error}"))
+}
+
+#[command]
+pub fn clear_history(app: AppHandle) -> Result<bool, String> {
+    let database = Database::open(history_database_path(&app)?)
+        .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
+    HistoryStorage::clear_history(database.connection())
+        .map_err(|error| format!("Cannot clear traffic history: {error}"))?;
+    Ok(true)
 }

@@ -14,6 +14,11 @@ pub struct LiveNetworkStats {
     pub total_session_bytes: u64,
     pub daily_download_bytes: u64,
     pub daily_upload_bytes: u64,
+    pub hourly_download_bytes: u64,
+    pub hourly_upload_bytes: u64,
+    pub date_str: String,
+    pub hour_str: String,
+    pub hour_key: String,
     pub active_adapter_id: String,
 }
 
@@ -28,12 +33,15 @@ struct AdapterSample {
     session_upload_bytes: u64,
     daily_download_bytes: u64,
     daily_upload_bytes: u64,
+    hourly_download_bytes: u64,
+    hourly_upload_bytes: u64,
+    day_key: String,
+    hour_key: String,
 }
 
 #[derive(Default)]
 struct TelemetryState {
     adapters: HashMap<String, AdapterSample>,
-    day_key: String,
 }
 
 static TELEMETRY: OnceLock<Mutex<TelemetryState>> = OnceLock::new();
@@ -42,32 +50,35 @@ static TELEMETRY: OnceLock<Mutex<TelemetryState>> = OnceLock::new();
 pub struct MonitoringCollector;
 
 impl MonitoringCollector {
-    pub fn new() -> Self {
-        Self
-    }
+    pub fn new() -> Self { Self }
 
-    /// Read actual cumulative interface counters and calculate rates from successive samples.
-    /// Values are zero on the first sample; no sample traffic is synthesized.
+    /// Read OS counters and calculate rates from deltas between real samples.
+    /// All rates start at zero until a second sample establishes a delta.
     pub fn get_latest_stats(&self, adapter_id: &str) -> Result<LiveNetworkStats, String> {
         let counters = InterfaceCounters::read_counters(adapter_id)?;
+        let now = chrono::Local::now();
+        let date_str = now.format("%Y-%m-%d").to_string();
+        let hour_str = now.format("%H:00").to_string();
+        let hour_key = now.format("%Y-%m-%d-%H").to_string();
         let mut state = TELEMETRY
             .get_or_init(|| Mutex::new(TelemetryState::default()))
             .lock()
             .map_err(|_| "Network telemetry state is unavailable.".to_string())?;
+        let sample = state.adapters.entry(counters.adapter_id.clone()).or_default();
 
-        let today = chrono::Local::now().date_naive().to_string();
-        if state.day_key != today {
-            state.day_key = today;
-            for sample in state.adapters.values_mut() {
-                sample.daily_download_bytes = 0;
-                sample.daily_upload_bytes = 0;
-            }
+        if sample.day_key != date_str {
+            sample.day_key = date_str.clone();
+            sample.daily_download_bytes = 0;
+            sample.daily_upload_bytes = 0;
+        }
+        if sample.hour_key != hour_key {
+            sample.hour_key = hour_key.clone();
+            sample.hourly_download_bytes = 0;
+            sample.hourly_upload_bytes = 0;
         }
 
-        let sample = state.adapters.entry(counters.adapter_id.clone()).or_default();
         let mut delta_received = 0_u64;
         let mut delta_sent = 0_u64;
-
         if let (Some(previous_received), Some(previous_sent), Some(previous_time)) =
             (sample.last_received, sample.last_sent, sample.last_timestamp_ms)
         {
@@ -81,9 +92,10 @@ impl MonitoringCollector {
                 sample.session_upload_bytes = sample.session_upload_bytes.saturating_add(delta_sent);
                 sample.daily_download_bytes = sample.daily_download_bytes.saturating_add(delta_received);
                 sample.daily_upload_bytes = sample.daily_upload_bytes.saturating_add(delta_sent);
+                sample.hourly_download_bytes = sample.hourly_download_bytes.saturating_add(delta_received);
+                sample.hourly_upload_bytes = sample.hourly_upload_bytes.saturating_add(delta_sent);
             }
         }
-
         sample.last_received = Some(counters.bytes_received);
         sample.last_sent = Some(counters.bytes_sent);
         sample.last_timestamp_ms = Some(counters.timestamp_ms);
@@ -97,11 +109,16 @@ impl MonitoringCollector {
             total_session_bytes: sample.session_download_bytes.saturating_add(sample.session_upload_bytes),
             daily_download_bytes: sample.daily_download_bytes,
             daily_upload_bytes: sample.daily_upload_bytes,
+            hourly_download_bytes: sample.hourly_download_bytes,
+            hourly_upload_bytes: sample.hourly_upload_bytes,
+            date_str,
+            hour_str,
+            hour_key,
             active_adapter_id: counters.adapter_id,
         })
     }
 
-    /// Reset measured application-session and current-day totals without changing OS counters.
+    /// Reset app-measured totals while preserving OS counter baselines, preventing artificial spikes.
     pub fn reset_session_counters() -> Result<(), String> {
         let mut state = TELEMETRY
             .get_or_init(|| Mutex::new(TelemetryState::default()))
@@ -112,6 +129,8 @@ impl MonitoringCollector {
             sample.session_upload_bytes = 0;
             sample.daily_download_bytes = 0;
             sample.daily_upload_bytes = 0;
+            sample.hourly_download_bytes = 0;
+            sample.hourly_upload_bytes = 0;
         }
         Ok(())
     }

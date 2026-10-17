@@ -16,9 +16,20 @@ pub struct TrafficHistoryEntry {
 pub struct HistoryStorage;
 
 impl HistoryStorage {
-    pub fn get_history(conn: &Connection, _range: &str) -> Result<Vec<TrafficHistoryEntry>> {
-        let mut stmt = conn.prepare("SELECT id, timestamp, date_str, hour_str, download_bytes, upload_bytes, top_app FROM hourly_traffic ORDER BY timestamp ASC")?;
-        let rows = stmt.query_map([], |row| {
+    pub fn get_history(conn: &Connection, range: &str) -> Result<Vec<TrafficHistoryEntry>> {
+        let today = chrono::Local::now().date_naive();
+        let earliest = match range {
+            "today" => today,
+            "7d" => today - chrono::Duration::days(7),
+            "30d" => today - chrono::Duration::days(30),
+            _ => chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("valid epoch date"),
+        }.format("%Y-%m-%d").to_string();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, timestamp, date_str, hour_str, download_bytes, upload_bytes, top_app
+             FROM hourly_traffic WHERE date_str >= ?1 ORDER BY timestamp ASC"
+        )?;
+        let rows = stmt.query_map([earliest], |row| {
             Ok(TrafficHistoryEntry {
                 id: row.get(0)?,
                 timestamp: row.get(1)?,
@@ -29,41 +40,23 @@ impl HistoryStorage {
                 top_app: row.get(6)?,
             })
         })?;
-
-        let mut results = Vec::new();
-        for r in rows {
-            results.push(r?);
-        }
-
-        if results.is_empty() {
-            // Seed sample historical day
-            results.push(TrafficHistoryEntry {
-                id: "h1".to_string(),
-                timestamp: 1773000000,
-                date_str: "2026-10-15".to_string(),
-                hour_str: "14:00".to_string(),
-                download_bytes: 520 * 1024 * 1024,
-                upload_bytes: 85 * 1024 * 1024,
-                top_app: "Google Chrome".to_string(),
-            });
-        }
-
-        Ok(results)
+        rows.collect()
     }
 
     pub fn insert_entry(conn: &Connection, entry: &TrafficHistoryEntry) -> Result<()> {
         conn.execute(
-            "INSERT OR REPLACE INTO hourly_traffic (id, timestamp, date_str, hour_str, download_bytes, upload_bytes, top_app) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT OR REPLACE INTO hourly_traffic (id, timestamp, date_str, hour_str, download_bytes, upload_bytes, top_app)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![
-                entry.id,
-                entry.timestamp,
-                entry.date_str,
-                entry.hour_str,
-                entry.download_bytes,
-                entry.upload_bytes,
-                entry.top_app
+                entry.id, entry.timestamp, entry.date_str, entry.hour_str,
+                entry.download_bytes, entry.upload_bytes, entry.top_app
             ],
         )?;
+        Ok(())
+    }
+
+    pub fn clear_history(conn: &Connection) -> Result<()> {
+        conn.execute("DELETE FROM hourly_traffic", [])?;
         Ok(())
     }
 }
