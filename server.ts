@@ -1,40 +1,30 @@
-import express from 'express';
-import os from 'os';
-import net from 'net';
-import fs from 'fs';
-import path from 'path';
+import express, { type Request, type Response } from 'express';
+import { execFile } from 'node:child_process';
+import net from 'node:net';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { createServer as createViteServer } from 'vite';
+import type {
+  AppSettings,
+  NetworkAdapter,
+  NetworkStats,
+  PingResult,
+  ProcessNetworkUsage,
+  SocketConnection,
+  TrafficHistoryRecord,
+} from './src/types/network';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+app.use(express.json({ limit: '1mb' }));
 
-app.use(express.json());
-
-// Persistent data directory
 const DATA_DIR = path.resolve(process.cwd(), 'data');
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
+fs.mkdirSync(DATA_DIR, { recursive: true });
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const HISTORY_FILE = path.join(DATA_DIR, 'history.json');
-const BLOCKED_FILE = path.join(DATA_DIR, 'blocked_apps.json');
 
-const blockedExes = new Set<string>();
-try {
-  if (fs.existsSync(BLOCKED_FILE)) {
-    const raw = fs.readFileSync(BLOCKED_FILE, 'utf-8');
-    const list = JSON.parse(raw);
-    if (Array.isArray(list)) {
-      list.forEach(exe => blockedExes.add(String(exe).toLowerCase()));
-    }
-  }
-} catch (e) {
-  console.warn('Failed to load blocked apps:', e);
-}
-
-// Default Settings
-const defaultSettings = {
+const DEFAULT_SETTINGS: AppSettings = {
   monitoring: {
     enabled: true,
     perAppEnabled: true,
@@ -46,836 +36,702 @@ const defaultSettings = {
   diagnostics: {
     pingTargets: [
       { id: 'cloudflare', name: 'Cloudflare DNS', host: '1.1.1.1' },
-      { id: 'google', name: 'Google Public DNS', host: '8.8.8.8' },
+      { id: 'google', name: 'Google DNS', host: '8.8.8.8' },
       { id: 'quad9', name: 'Quad9 DNS', host: '9.9.9.9' },
-      { id: 'microsoft', name: 'Microsoft Azure', host: '20.190.159.0' },
     ],
     activePingTarget: '1.1.1.1',
     pingIntervalMs: 2000,
     pingTimeoutMs: 1500,
-    mode: 'tcp' as const,
+    mode: 'tcp',
   },
   startup: {
-    startWithWindows: true,
+    startWithWindows: false,
     launchMinimized: false,
     minimizeToTrayOnClose: true,
     keepMonitoringInTray: true,
     showTraySpeedTooltip: true,
   },
-  storage: {
-    dataRetentionDays: 30,
-    autoPrune: true,
-  },
+  storage: { dataRetentionDays: 30, autoPrune: true },
   appearance: {
-    theme: 'dark' as const,
+    theme: 'dark',
     accentColor: '#38bdf8',
-    defaultCanvasMode: 'portrait_9_16' as const,
-    chartStyle: 'area' as const,
+    defaultCanvasMode: 'portrait_9_16',
+    chartStyle: 'area',
   },
 };
 
-let currentSettings = { ...defaultSettings };
-try {
-  if (fs.existsSync(SETTINGS_FILE)) {
-    const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
-    currentSettings = { ...defaultSettings, ...JSON.parse(raw) };
-  } else {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(defaultSettings, null, 2));
-  }
-} catch (e) {
-  console.warn('Failed to load settings file, using defaults', e);
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-// In-memory monitoring state
-interface InterfaceCounter {
-  rxBytes: number;
-  txBytes: number;
-  timestamp: number;
+function mergeSettings(incoming: unknown): AppSettings {
+  const value = isObject(incoming) ? incoming : {};
+  const section = (key: string) => isObject(value[key]) ? value[key] as Record<string, unknown> : {};
+  return {
+    monitoring: { ...DEFAULT_SETTINGS.monitoring, ...section('monitoring') },
+    diagnostics: { ...DEFAULT_SETTINGS.diagnostics, ...section('diagnostics') },
+    startup: { ...DEFAULT_SETTINGS.startup, ...section('startup') },
+    storage: { ...DEFAULT_SETTINGS.storage, ...section('storage') },
+    appearance: { ...DEFAULT_SETTINGS.appearance, ...section('appearance') },
+  } as AppSettings;
 }
 
-let lastInterfaceCounter: InterfaceCounter | null = null;
-let currentDownloadBps = 0;
-let currentUploadBps = 0;
-let sessionDownloadBytes = 1420 * 1024 * 1024; // Start with representative session traffic
-let sessionUploadBytes = 380 * 1024 * 1024;
-let dailyDownloadBytes = 4850 * 1024 * 1024;
-let dailyUploadBytes = 1120 * 1024 * 1024;
-let sessionStartTime = Date.now() - 3600 * 1000 * 4; // 4 hours ago
-
-// Read Linux /proc/net/dev if available
-function readLinuxNetDev(): { rx: number; tx: number } | null {
+function readSettings(): AppSettings {
   try {
-    if (fs.existsSync('/proc/net/dev')) {
-      const content = fs.readFileSync('/proc/net/dev', 'utf-8');
-      const lines = content.trim().split('\n');
-      let totalRx = 0;
-      let totalTx = 0;
-      let found = false;
+    return fs.existsSync(SETTINGS_FILE)
+      ? mergeSettings(JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')))
+      : DEFAULT_SETTINGS;
+  } catch (error) {
+    console.warn('Settings file could not be read; using preference defaults:', error);
+    return DEFAULT_SETTINGS;
+  }
+}
 
-      for (let i = 2; i < lines.length; i++) {
-        const parts = lines[i].trim().split(/\s+/);
-        const iface = parts[0].replace(':', '');
-        if (iface === 'lo') continue;
-        const rx = parseInt(parts[1], 10);
-        const tx = parseInt(parts[9], 10);
-        if (!isNaN(rx) && !isNaN(tx)) {
-          totalRx += rx;
-          totalTx += tx;
-          found = true;
+let currentSettings = readSettings();
+
+function saveSettingsFile(settings: AppSettings): void {
+  const temporary = SETTINGS_FILE + '.tmp';
+  fs.writeFileSync(temporary, JSON.stringify(settings, null, 2), 'utf8');
+  fs.renameSync(temporary, SETTINGS_FILE);
+}
+
+interface StoredHistory extends TrafficHistoryRecord {
+  actualMeasurement: true;
+}
+
+function readHistoryFile(): StoredHistory[] {
+  try {
+    if (!fs.existsSync(HISTORY_FILE)) return [];
+    const parsed: unknown = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+    if (!Array.isArray(parsed)) return [];
+    // Ignore legacy rows without the marker proving they came from real OS counters.
+    return parsed.filter((row): row is StoredHistory =>
+      isObject(row) &&
+      row.actualMeasurement === true &&
+      typeof row.id === 'string' &&
+      typeof row.timestamp === 'number' &&
+      typeof row.dateStr === 'string' &&
+      typeof row.hourStr === 'string' &&
+      typeof row.downloadBytes === 'number' &&
+      typeof row.uploadBytes === 'number' &&
+      typeof row.topApp === 'string'
+    );
+  } catch (error) {
+    console.warn('Traffic history could not be read; ignoring unverifiable records:', error);
+    return [];
+  }
+}
+
+let historyRecords = readHistoryFile();
+let lastHistoryWrite = 0;
+
+function persistHistoryIfDue(force = false): void {
+  if (!force && Date.now() - lastHistoryWrite < 15000) return;
+  const temporary = HISTORY_FILE + '.tmp';
+  fs.writeFileSync(temporary, JSON.stringify(historyRecords, null, 2), 'utf8');
+  fs.renameSync(temporary, HISTORY_FILE);
+  lastHistoryWrite = Date.now();
+}
+
+interface WindowsCounters {
+  adapterId: string;
+  bytesReceived: number;
+  bytesSent: number;
+  timestampMs: number;
+}
+
+interface AdapterSample {
+  lastReceived: number;
+  lastSent: number;
+  lastTimestamp: number;
+  downloadBps: number;
+  uploadBps: number;
+  sessionDownloadBytes: number;
+  sessionUploadBytes: number;
+  dailyDownloadBytes: number;
+  dailyUploadBytes: number;
+  dayKey: string;
+}
+
+const adapterSamples = new Map<string, AdapterSample>();
+let monitoringEnabled = currentSettings.monitoring.enabled;
+let currentPingHistory: number[] = [];
+let currentPingTarget = currentSettings.diagnostics.activePingTarget;
+let lastSuccessfulPing: PingResult | null = null;
+
+function runPowerShell(script: string, timeout = 15000): Promise<string> {
+  if (process.platform !== 'win32') {
+    return Promise.reject(new Error('Native Windows telemetry is only available on Windows. The development server does not generate simulated system data.'));
+  }
+
+  const fullScript = "$ErrorActionPreference = 'Stop'; [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding;\n" + script;
+  return new Promise((resolve, reject) => {
+    execFile(
+      'powershell.exe',
+      ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', fullScript],
+      { windowsHide: true, encoding: 'utf8', timeout, maxBuffer: 24 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = String(stderr || '').trim();
+          reject(new Error(detail || error.message || 'Windows PowerShell command failed.'));
+          return;
+        }
+        resolve(String(stdout || '').trim());
+      },
+    );
+  });
+}
+
+function parseJsonArray<T>(json: string): T[] {
+  if (!json.trim()) return [];
+  const value: unknown = JSON.parse(json);
+  if (Array.isArray(value)) return value as T[];
+  return value === null || value === undefined ? [] : [value as T];
+}
+
+function sendFailure(res: Response, error: unknown, label: string): void {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error(`[${label}]`, detail);
+  const status = /access is denied|access denied|administrator|elevation/i.test(detail) ? 403 : 503;
+  if (!res.headersSent) res.status(status).json({ error: detail, source: 'live-system' });
+}
+
+async function queryAdapters(): Promise<NetworkAdapter[]> {
+  const script = String.raw`
+$rows = @(
+  Get-NetAdapter -IncludeHidden -ErrorAction Stop |
+    Where-Object { $_.Status -ne 'Not Present' } |
+    ForEach-Object {
+      $adapter = $_
+      $ip = Get-NetIPConfiguration -InterfaceIndex $adapter.ifIndex -ErrorAction SilentlyContinue
+      $kind = 'ethernet'
+      if ($adapter.InterfaceDescription -match 'Wi-?Fi|Wireless|802\.11') { $kind = 'wifi' }
+      elseif ($adapter.Name -match 'loopback') { $kind = 'loopback' }
+      elseif (-not $adapter.HardwareInterface -or $adapter.Name -match 'VPN|TAP|Tunnel|Virtual|WireGuard|Wintun') { $kind = 'virtual' }
+      $status = if ($adapter.Status -eq 'Up') { 'connected' } else { 'disconnected' }
+      $ipv4Item = $ip.IPv4Address | Select-Object -First 1
+      $ipv6Item = $ip.IPv6Address | Select-Object -First 1
+      $gatewayItem = $ip.IPv4DefaultGateway | Select-Object -First 1
+      $ipv4 = if ($ipv4Item) { [string]$ipv4Item.IPAddress } else { '' }
+      $ipv6 = if ($ipv6Item) { [string]$ipv6Item.IPAddress } else { '' }
+      $gateway = if ($gatewayItem) { [string]$gatewayItem.NextHop } else { '' }
+      $dns = @($ip.DnsServer.ServerAddresses | Where-Object { $_ })
+      $speed = 0
+      $linkText = [string]$adapter.LinkSpeed
+      if ($linkText -match '([0-9]+(?:\.[0-9]+)?)\s*(Kbps|Mbps|Gbps)') {
+        $number = [double]$Matches[1]
+        switch ($Matches[2]) {
+          'Gbps' { $speed = [int][math]::Round($number * 1000) }
+          'Mbps' { $speed = [int][math]::Round($number) }
+          'Kbps' { $speed = [int][math]::Round($number / 1000) }
         }
       }
-      if (found) return { rx: totalRx, tx: totalTx };
-    }
-  } catch {
-    // Ignore error
-  }
-  return null;
-}
-
-// Network Adapters resolution
-function getSystemAdapters() {
-  const ifaces = os.networkInterfaces();
-  const adapters = [];
-  let isDefaultSet = false;
-
-  for (const [name, addrs] of Object.entries(ifaces)) {
-    if (!addrs) continue;
-    const isLoopback = addrs.some(a => a.internal);
-    const ipv4 = addrs.find(a => a.family === 'IPv4' && !a.internal);
-    const ipv6 = addrs.find(a => a.family === 'IPv6' && !a.internal);
-
-    const isWifi = name.toLowerCase().includes('wi-fi') || name.toLowerCase().includes('wlan') || name.toLowerCase().includes('wireless');
-    const isEthernet = name.toLowerCase().includes('eth') || name.toLowerCase().includes('ethernet') || name.toLowerCase().includes('en');
-
-    const isConnected = !!ipv4 || !!ipv6;
-    const isDefault = !isDefaultSet && isConnected && !isLoopback;
-    if (isDefault) isDefaultSet = true;
-
-    adapters.push({
-      id: name,
-      name: isWifi ? 'Wi-Fi 6 (802.11ax)' : isEthernet ? 'Intel(R) Ethernet Controller I225-V' : name,
-      description: isWifi ? 'Intel(R) Wi-Fi 6E AX211 160MHz' : isEthernet ? 'Intel(R) Ethernet Connection (2) I219-V' : `${name} Network Adapter`,
-      type: isLoopback ? 'loopback' : isWifi ? 'wifi' : isEthernet ? 'ethernet' : 'virtual',
-      status: isConnected ? 'connected' : 'disconnected',
-      localIPv4: ipv4?.address || (isLoopback ? '127.0.0.1' : '192.168.1.145'),
-      localIPv6: ipv6?.address || 'fe80::92d8:12f4:67ca:8821%14',
-      macAddress: ipv4?.mac || ipv6?.mac || '00:1A:2B:3C:4D:5E',
-      gateway: '192.168.1.1',
-      dnsServers: ['1.1.1.1', '8.8.8.8'],
-      signalPercent: isWifi ? 88 : undefined,
-      signalDbm: isWifi ? -54 : undefined,
-      ssid: isWifi ? 'AeroNet-5G_Pro' : undefined,
-      speedMbps: isWifi ? 1200 : 2500,
-      isDefault: isDefault || name === 'eth0' || name === 'wlan0',
-    });
-  }
-
-  // Ensure at least one primary connected adapter is returned
-  if (adapters.length === 0 || !adapters.some(a => a.isDefault)) {
-    adapters.unshift({
-      id: 'Ethernet0',
-      name: 'Intel(R) Ethernet Controller I225-V (2.5GbE)',
-      description: 'PCIe Gigabit Network Interface',
-      type: 'ethernet',
-      status: 'connected',
-      localIPv4: '192.168.1.145',
-      localIPv6: 'fe80::92d8:12f4:67ca:8821%14',
-      macAddress: '04:7C:16:B3:99:A1',
-      gateway: '192.168.1.1',
-      dnsServers: ['1.1.1.1', '1.0.0.1'],
-      speedMbps: 2500,
-      isDefault: true,
-    });
-    adapters.push({
-      id: 'Wi-Fi0',
-      name: 'Intel(R) Wi-Fi 6E AX211',
-      description: 'Wi-Fi 6E Wireless Adapter',
-      type: 'wifi',
-      status: 'connected',
-      localIPv4: '192.168.1.146',
-      localIPv6: 'fe80::5c32:9af1:e700:23b4%18',
-      macAddress: 'E8:9E:B4:42:31:70',
-      gateway: '192.168.1.1',
-      dnsServers: ['1.1.1.1', '8.8.8.8'],
-      signalPercent: 92,
-      signalDbm: -51,
-      ssid: 'NetScope-5G_Ultra',
-      speedMbps: 1200,
-      isDefault: false,
-    });
-  }
-
-  return adapters;
-}
-
-// Background Network Telemetry Collector
-interface ProcessProfile {
-  pid: number;
-  name: string;
-  friendlyName: string;
-  exeName: string;
-  fullPath: string;
-  icon: string;
-  baseDownloadWeight: number;
-  baseUploadWeight: number;
-  sessionDown: number;
-  sessionUp: number;
-  connectionCount: number;
-  status: 'active' | 'idle';
-  startTime: number;
-  recentSpeeds: { time: number; down: number; up: number }[];
-  connections: any[];
-}
-
-const trackedProcesses: ProcessProfile[] = [
-  {
-    pid: 14280,
-    name: 'chrome.exe',
-    friendlyName: 'Google Chrome',
-    exeName: 'chrome.exe',
-    fullPath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    icon: '',
-    baseDownloadWeight: 3.2,
-    baseUploadWeight: 0.8,
-    sessionDown: 640 * 1024 * 1024,
-    sessionUp: 78 * 1024 * 1024,
-    connectionCount: 16,
-    status: 'active',
-    startTime: Date.now() - 3600 * 1000 * 3,
-    recentSpeeds: [],
-    connections: [
-      { id: 'c1', protocol: 'TCP', localAddress: '192.168.1.145', localPort: 54120, remoteAddress: '142.250.180.206', remotePort: 443, state: 'ESTABLISHED', pid: 14280, processName: 'chrome.exe', bytesSent: 341200, bytesReceived: 4210900 },
-      { id: 'c2', protocol: 'TCP', localAddress: '192.168.1.145', localPort: 54124, remoteAddress: '172.217.16.206', remotePort: 443, state: 'ESTABLISHED', pid: 14280, processName: 'chrome.exe', bytesSent: 120400, bytesReceived: 1845200 },
-      { id: 'c3', protocol: 'UDP', localAddress: '192.168.1.145', localPort: 53210, remoteAddress: '142.250.74.110', remotePort: 443, state: 'ESTABLISHED', pid: 14280, processName: 'chrome.exe', bytesSent: 82000, bytesReceived: 921000 },
-    ],
-  },
-  {
-    pid: 11048,
-    name: 'Discord.exe',
-    friendlyName: 'Discord',
-    exeName: 'Discord.exe',
-    fullPath: 'C:\\Users\\User\\AppData\\Local\\Discord\\app-1.0.9168\\Discord.exe',
-    icon: '',
-    baseDownloadWeight: 1.8,
-    baseUploadWeight: 1.2,
-    sessionDown: 320 * 1024 * 1024,
-    sessionUp: 94 * 1024 * 1024,
-    connectionCount: 8,
-    status: 'active',
-    startTime: Date.now() - 3600 * 1000 * 3.5,
-    recentSpeeds: [],
-    connections: [
-      { id: 'd1', protocol: 'TCP', localAddress: '192.168.1.145', localPort: 51200, remoteAddress: '162.159.130.234', remotePort: 443, state: 'ESTABLISHED', pid: 11048, processName: 'Discord.exe', bytesSent: 89040, bytesReceived: 780200 },
-      { id: 'd2', protocol: 'UDP', localAddress: '192.168.1.145', localPort: 50012, remoteAddress: '66.22.241.112', remotePort: 50001, state: 'ESTABLISHED', pid: 11048, processName: 'Discord.exe', bytesSent: 542000, bytesReceived: 620000 },
-    ],
-  },
-  {
-    pid: 8920,
-    name: 'Spotify.exe',
-    friendlyName: 'Spotify Music',
-    exeName: 'Spotify.exe',
-    fullPath: 'C:\\Users\\User\\AppData\\Roaming\\Spotify\\Spotify.exe',
-    icon: '',
-    baseDownloadWeight: 1.2,
-    baseUploadWeight: 0.1,
-    sessionDown: 185 * 1024 * 1024,
-    sessionUp: 12 * 1024 * 1024,
-    connectionCount: 5,
-    status: 'active',
-    startTime: Date.now() - 3600 * 1000 * 2,
-    recentSpeeds: [],
-    connections: [
-      { id: 's1', protocol: 'TCP', localAddress: '192.168.1.145', localPort: 52180, remoteAddress: '35.186.224.25', remotePort: 443, state: 'ESTABLISHED', pid: 8920, processName: 'Spotify.exe', bytesSent: 34000, bytesReceived: 4120000 },
-    ],
-  },
-  {
-    pid: 6140,
-    name: 'steam.exe',
-    friendlyName: 'Steam Client Bootstrapper',
-    exeName: 'steam.exe',
-    fullPath: 'C:\\Program Files (x86)\\Steam\\steam.exe',
-    icon: '',
-    baseDownloadWeight: 2.5,
-    baseUploadWeight: 0.4,
-    sessionDown: 140 * 1024 * 1024,
-    sessionUp: 28 * 1024 * 1024,
-    connectionCount: 12,
-    status: 'active',
-    startTime: Date.now() - 3600 * 1000 * 4,
-    recentSpeeds: [],
-    connections: [
-      { id: 'st1', protocol: 'TCP', localAddress: '192.168.1.145', localPort: 56210, remoteAddress: '155.133.253.50', remotePort: 27017, state: 'ESTABLISHED', pid: 6140, processName: 'steam.exe', bytesSent: 120500, bytesReceived: 3410200 },
-    ],
-  },
-  {
-    pid: 17892,
-    name: 'Code.exe',
-    friendlyName: 'Visual Studio Code',
-    exeName: 'Code.exe',
-    fullPath: 'C:\\Users\\User\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe',
-    icon: '',
-    baseDownloadWeight: 0.6,
-    baseUploadWeight: 0.3,
-    sessionDown: 65 * 1024 * 1024,
-    sessionUp: 18 * 1024 * 1024,
-    connectionCount: 6,
-    status: 'active',
-    startTime: Date.now() - 3600 * 1000 * 4.5,
-    recentSpeeds: [],
-    connections: [
-      { id: 'vc1', protocol: 'TCP', localAddress: '192.168.1.145', localPort: 55430, remoteAddress: '20.190.159.68', remotePort: 443, state: 'ESTABLISHED', pid: 17892, processName: 'Code.exe', bytesSent: 42100, bytesReceived: 218000 },
-    ],
-  },
-  {
-    pid: 4,
-    name: 'System',
-    friendlyName: 'NT Kernel & System',
-    exeName: 'ntoskrnl.exe',
-    fullPath: 'C:\\Windows\\System32\\ntoskrnl.exe',
-    icon: '',
-    baseDownloadWeight: 0.2,
-    baseUploadWeight: 0.1,
-    sessionDown: 28 * 1024 * 1024,
-    sessionUp: 14 * 1024 * 1024,
-    connectionCount: 4,
-    status: 'active',
-    startTime: Date.now() - 3600 * 1000 * 8,
-    recentSpeeds: [],
-    connections: [
-      { id: 'sys1', protocol: 'TCP', localAddress: '192.168.1.145', localPort: 445, remoteAddress: '0.0.0.0', remotePort: 0, state: 'LISTENING', pid: 4, processName: 'System', bytesSent: 0, bytesReceived: 0 },
-    ],
-  },
-  {
-    pid: 4832,
-    name: 'msedge.exe',
-    friendlyName: 'Microsoft Edge',
-    exeName: 'msedge.exe',
-    fullPath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-    icon: '',
-    baseDownloadWeight: 0.4,
-    baseUploadWeight: 0.1,
-    sessionDown: 42 * 1024 * 1024,
-    sessionUp: 8 * 1024 * 1024,
-    connectionCount: 4,
-    status: 'idle',
-    startTime: Date.now() - 3600 * 1000 * 1.5,
-    recentSpeeds: [],
-    connections: [],
-  },
-  {
-    pid: 9340,
-    name: 'slack.exe',
-    friendlyName: 'Slack Workspaces',
-    exeName: 'slack.exe',
-    fullPath: 'C:\\Users\\User\\AppData\\Local\\slack\\slack.exe',
-    icon: '',
-    baseDownloadWeight: 0.5,
-    baseUploadWeight: 0.2,
-    sessionDown: 58 * 1024 * 1024,
-    sessionUp: 14 * 1024 * 1024,
-    connectionCount: 5,
-    status: 'active',
-    startTime: Date.now() - 3600 * 1000 * 3.8,
-    recentSpeeds: [],
-    connections: [
-      { id: 'sl1', protocol: 'TCP', localAddress: '192.168.1.145', localPort: 52190, remoteAddress: '54.210.144.11', remotePort: 443, state: 'ESTABLISHED', pid: 9340, processName: 'slack.exe', bytesSent: 19800, bytesReceived: 142000 },
-    ],
-  },
-  {
-    pid: 12904,
-    name: 'obs64.exe',
-    friendlyName: 'OBS Studio (64-bit)',
-    exeName: 'obs64.exe',
-    fullPath: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe',
-    icon: '',
-    baseDownloadWeight: 0.1,
-    baseUploadWeight: 0.05,
-    sessionDown: 8 * 1024 * 1024,
-    sessionUp: 4 * 1024 * 1024,
-    connectionCount: 2,
-    status: 'idle',
-    startTime: Date.now() - 3600 * 1000 * 2.2,
-    recentSpeeds: [],
-    connections: [],
-  },
-  {
-    pid: 7420,
-    name: 'OneDrive.exe',
-    friendlyName: 'Microsoft OneDrive Sync',
-    exeName: 'OneDrive.exe',
-    fullPath: 'C:\\Users\\User\\AppData\\Local\\Microsoft\\OneDrive\\OneDrive.exe',
-    icon: '',
-    baseDownloadWeight: 0.3,
-    baseUploadWeight: 0.2,
-    sessionDown: 35 * 1024 * 1024,
-    sessionUp: 22 * 1024 * 1024,
-    connectionCount: 3,
-    status: 'active',
-    startTime: Date.now() - 3600 * 1000 * 5,
-    recentSpeeds: [],
-    connections: [
-      { id: 'od1', protocol: 'TCP', localAddress: '192.168.1.145', localPort: 53102, remoteAddress: '13.107.136.9', remotePort: 443, state: 'ESTABLISHED', pid: 7420, processName: 'OneDrive.exe', bytesSent: 42100, bytesReceived: 89400 },
-    ],
-  },
-];
-
-// Rolling ticker for real network delta collection
-setInterval(() => {
-  if (!currentSettings.monitoring.enabled) {
-    currentDownloadBps = 0;
-    currentUploadBps = 0;
-    return;
-  }
-
-  const now = Date.now();
-  const netDev = readLinuxNetDev();
-
-  if (netDev && lastInterfaceCounter) {
-    const elapsedSec = (now - lastInterfaceCounter.timestamp) / 1000;
-    if (elapsedSec > 0) {
-      const rxDelta = Math.max(0, netDev.rx - lastInterfaceCounter.rxBytes);
-      const txDelta = Math.max(0, netDev.tx - lastInterfaceCounter.txBytes);
-
-      // If system has real traffic delta, calculate from it
-      if (rxDelta > 0 || txDelta > 0) {
-        currentDownloadBps = Math.round(rxDelta / elapsedSec);
-        currentUploadBps = Math.round(txDelta / elapsedSec);
-      } else {
-        // Fallback to active process aggregation
-        simulateProcessDeltas(elapsedSec);
+      [pscustomobject]@{
+        id = [string]$adapter.ifIndex
+        name = [string]$adapter.Name
+        description = [string]$adapter.InterfaceDescription
+        type = $kind
+        status = $status
+        localIPv4 = $ipv4
+        localIPv6 = $ipv6
+        macAddress = [string]$adapter.MacAddress
+        gateway = $gateway
+        dnsServers = @($dns)
+        signalPercent = $null
+        signalDbm = $null
+        ssid = $null
+        speedMbps = $speed
+        isDefault = [bool]$gateway
       }
     }
-  } else {
-    // Collect and aggregate processes
-    simulateProcessDeltas(1);
-  }
-
-  if (netDev) {
-    lastInterfaceCounter = {
-      rxBytes: netDev.rx,
-      txBytes: netDev.tx,
-      timestamp: now,
-    };
-  } else {
-    lastInterfaceCounter = {
-      rxBytes: sessionDownloadBytes,
-      txBytes: sessionUploadBytes,
-      timestamp: now,
-    };
-  }
-
-  // Accumulate session and daily totals
-  sessionDownloadBytes += currentDownloadBps;
-  sessionUploadBytes += currentUploadBps;
-  dailyDownloadBytes += currentDownloadBps;
-  dailyUploadBytes += currentUploadBps;
-}, 1000);
-
-function simulateProcessDeltas(elapsedSec: number) {
-  let totalDown = 0;
-  let totalUp = 0;
-
-  trackedProcesses.forEach(proc => {
-    const isBlocked = blockedExes.has(proc.exeName.toLowerCase());
-    if (proc.status === 'idle' || isBlocked) {
-      proc.recentSpeeds.push({ time: Date.now(), down: 0, up: 0 });
-      if (proc.recentSpeeds.length > 30) proc.recentSpeeds.shift();
-      return;
-    }
-
-    // Realistic bursty network model
-    const jitter = 0.5 + Math.random() * 0.9;
-    const isBurst = Math.random() < 0.15;
-    const multiplier = isBurst ? 3.5 : 1.0;
-
-    const downBps = Math.round(proc.baseDownloadWeight * 145000 * jitter * multiplier);
-    const upBps = Math.round(proc.baseUploadWeight * 48000 * jitter * multiplier);
-
-    proc.sessionDown += Math.round(downBps * elapsedSec);
-    proc.sessionUp += Math.round(upBps * elapsedSec);
-
-    proc.recentSpeeds.push({ time: Date.now(), down: downBps, up: upBps });
-    if (proc.recentSpeeds.length > 30) proc.recentSpeeds.shift();
-
-    totalDown += downBps;
-    totalUp += upBps;
-  });
-
-  currentDownloadBps = totalDown;
-  currentUploadBps = totalUp;
+)
+ConvertTo-Json -InputObject @($rows) -Depth 5 -Compress
+`;
+  return parseJsonArray<NetworkAdapter>(await runPowerShell(script));
 }
 
-// Latency & Ping Engine
-const pingStatsCache: Record<string, { latency: number; min: number; max: number; avg: number; jitter: number; loss: number; history: number[] }> = {};
+async function readWindowsCounters(adapterId: string): Promise<WindowsCounters> {
+  if (adapterId !== 'auto' && !/^\d+$/.test(adapterId)) {
+    throw new Error('Adapter ID must be auto or a numeric Windows interface index.');
+  }
+  const script = String.raw`
+$requestedId = '__ADAPTER_ID__'
+if ($requestedId -eq 'auto') {
+  $config = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPv4DefaultGateway -or $_.IPv6DefaultGateway } |
+    Select-Object -First 1
+  if ($null -eq $config) { throw 'No active default-route network adapter was found.' }
+  $adapter = Get-NetAdapter -InterfaceIndex $config.InterfaceIndex -ErrorAction Stop
+} else {
+  $adapter = Get-NetAdapter -InterfaceIndex ([int]$requestedId) -ErrorAction Stop
+}
+$stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction Stop
+[pscustomobject]@{
+  adapterId = [string]$adapter.ifIndex
+  bytesReceived = [uint64]$stats.ReceivedBytes
+  bytesSent = [uint64]$stats.SentBytes
+  timestampMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+} | ConvertTo-Json -Compress
+`.replace('__ADAPTER_ID__', adapterId);
+  const result = JSON.parse(await runPowerShell(script)) as WindowsCounters;
+  if (!result || !Number.isFinite(result.bytesReceived) || !Number.isFinite(result.bytesSent)) {
+    throw new Error('Windows returned invalid interface counters.');
+  }
+  return result;
+}
 
-async function performSocketProbe(host: string, port = 443, timeoutMs = 1200): Promise<{ latency: number; status: 'success' | 'timeout' | 'error' }> {
+async function sampleLiveStats(adapterId: string): Promise<NetworkStats> {
+  const counters = await readWindowsCounters(adapterId);
+  const now = new Date();
+  const dayKey = now.toISOString().slice(0, 10);
+  let sample = adapterSamples.get(counters.adapterId);
+
+  if (!sample) {
+    sample = {
+      lastReceived: counters.bytesReceived,
+      lastSent: counters.bytesSent,
+      lastTimestamp: counters.timestampMs,
+      downloadBps: 0,
+      uploadBps: 0,
+      sessionDownloadBytes: 0,
+      sessionUploadBytes: 0,
+      dailyDownloadBytes: 0,
+      dailyUploadBytes: 0,
+      dayKey,
+    };
+    adapterSamples.set(counters.adapterId, sample);
+  } else {
+    if (sample.dayKey !== dayKey) {
+      sample.dayKey = dayKey;
+      sample.dailyDownloadBytes = 0;
+      sample.dailyUploadBytes = 0;
+    }
+    const elapsed = counters.timestampMs - sample.lastTimestamp;
+    const rxDelta = Math.max(0, counters.bytesReceived - sample.lastReceived);
+    const txDelta = Math.max(0, counters.bytesSent - sample.lastSent);
+    if (elapsed > 0) {
+      sample.downloadBps = Math.round(rxDelta * 1000 / elapsed);
+      sample.uploadBps = Math.round(txDelta * 1000 / elapsed);
+      sample.sessionDownloadBytes += rxDelta;
+      sample.sessionUploadBytes += txDelta;
+      sample.dailyDownloadBytes += rxDelta;
+      sample.dailyUploadBytes += txDelta;
+      updateHistory(counters.adapterId, now, rxDelta, txDelta);
+    }
+    sample.lastReceived = counters.bytesReceived;
+    sample.lastSent = counters.bytesSent;
+    sample.lastTimestamp = counters.timestampMs;
+  }
+
+  return {
+    timestamp: counters.timestampMs,
+    downloadBps: monitoringEnabled ? sample.downloadBps : 0,
+    uploadBps: monitoringEnabled ? sample.uploadBps : 0,
+    sessionDownloadBytes: sample.sessionDownloadBytes,
+    sessionUploadBytes: sample.sessionUploadBytes,
+    totalSessionBytes: sample.sessionDownloadBytes + sample.sessionUploadBytes,
+    dailyDownloadBytes: sample.dailyDownloadBytes,
+    dailyUploadBytes: sample.dailyUploadBytes,
+    activeAdapterId: counters.adapterId,
+  };
+}
+
+function updateHistory(adapterId: string, now: Date, downloadDelta: number, uploadDelta: number): void {
+  const dateStr = now.toISOString().slice(0, 10);
+  const hourStr = `${String(now.getHours()).padStart(2, '0')}:00`;
+  const id = `interface:${adapterId}:${dateStr}:${hourStr}`;
+  let row = historyRecords.find(entry => entry.id === id);
+  if (!row) {
+    row = {
+      id,
+      timestamp: now.getTime(),
+      dateStr,
+      hourStr,
+      downloadBytes: 0,
+      uploadBytes: 0,
+      topApp: `Interface ${adapterId}`,
+      actualMeasurement: true,
+    };
+    historyRecords.push(row);
+  }
+  row.timestamp = now.getTime();
+  row.downloadBytes += downloadDelta;
+  row.uploadBytes += uploadDelta;
+  const retentionDays = Math.max(1, Math.min(365, Number(currentSettings.storage.dataRetentionDays) || 30));
+  const oldestAllowed = now.getTime() - retentionDays * 86400000;
+  historyRecords = historyRecords.filter(entry => entry.timestamp >= oldestAllowed);
+  persistHistoryIfDue();
+}
+
+interface ConnectionQueryResult {
+  connections: SocketConnection[];
+  processes: ProcessNetworkUsage[];
+}
+
+async function queryConnectionsAndProcesses(): Promise<ConnectionQueryResult> {
+  const script = String.raw`
+$processNames = @{}
+$processRows = @(Get-Process -ErrorAction SilentlyContinue)
+foreach ($process in $processRows) { $processNames[[string]$process.Id] = "$($process.ProcessName).exe" }
+
+$blockedPids = @{}
+Get-NetFirewallRule -ErrorAction SilentlyContinue |
+  Where-Object { $_.DisplayName -like 'NetScopeX-Blocked-*-out' -and $_.Enabled -eq 'True' } |
+  ForEach-Object {
+    if ($_.DisplayName -match '^NetScopeX-Blocked-(\d+)-out$') { $blockedPids[$Matches[1]] = $true }
+  }
+
+$tcp = @(
+  Get-NetTCPConnection -ErrorAction SilentlyContinue | ForEach-Object {
+    $pidValue = [int]$_.OwningProcess
+    $key = [string]$pidValue
+    $procName = if ($processNames.ContainsKey($key)) { $processNames[$key] } else { "PID $pidValue" }
+    $state = switch ([string]$_.State) {
+      'Established' { 'ESTABLISHED' }
+      'Listen' { 'LISTENING' }
+      'CloseWait' { 'CLOSE_WAIT' }
+      'TimeWait' { 'TIME_WAIT' }
+      'SynSent' { 'SYN_SENT' }
+      'SynReceived' { 'SYN_RCVD' }
+      'FinWait1' { 'FIN_WAIT_1' }
+      'FinWait2' { 'FIN_WAIT_2' }
+      'LastAck' { 'LAST_ACK' }
+      default { ([string]$_.State).ToUpperInvariant() }
+    }
+    [pscustomobject]@{
+      id = "tcp-$pidValue-$($_.LocalAddress)-$($_.LocalPort)-$($_.RemoteAddress)-$($_.RemotePort)"
+      protocol = 'TCP'
+      localAddress = [string]$_.LocalAddress
+      localPort = [uint16]$_.LocalPort
+      remoteAddress = [string]$_.RemoteAddress
+      remotePort = [uint16]$_.RemotePort
+      state = $state
+      pid = $pidValue
+      processName = $procName
+      bytesSent = [uint64]0
+      bytesReceived = [uint64]0
+    }
+  }
+)
+$udp = @(
+  Get-NetUDPEndpoint -ErrorAction SilentlyContinue | ForEach-Object {
+    $pidValue = [int]$_.OwningProcess
+    $key = [string]$pidValue
+    $procName = if ($processNames.ContainsKey($key)) { $processNames[$key] } else { "PID $pidValue" }
+    [pscustomobject]@{
+      id = "udp-$pidValue-$($_.LocalAddress)-$($_.LocalPort)"
+      protocol = 'UDP'
+      localAddress = [string]$_.LocalAddress
+      localPort = [uint16]$_.LocalPort
+      remoteAddress = ''
+      remotePort = [uint16]0
+      state = 'LISTENING'
+      pid = $pidValue
+      processName = $procName
+      bytesSent = [uint64]0
+      bytesReceived = [uint64]0
+    }
+  }
+)
+$connections = @($tcp) + @($udp)
+$processes = @(
+  $processRows | ForEach-Object {
+    $process = $_
+    $pidValue = [int]$process.Id
+    $processKey = [string]$pidValue
+    $path = ''
+    try { $path = [string]$process.Path } catch {}
+    $start = [long]0
+    try {
+      $startTime = $process.StartTime.ToUniversalTime()
+      $start = ([DateTimeOffset]$startTime).ToUnixTimeMilliseconds()
+    } catch {}
+    $processConnections = @($connections | Where-Object { [int]$_.pid -eq $pidValue })
+    [pscustomobject]@{
+      pid = [uint32]$pidValue
+      name = "$($process.ProcessName).exe"
+      friendlyName = [string]$process.ProcessName
+      exeName = "$($process.ProcessName).exe"
+      fullPath = $path
+      icon = ''
+      downloadBps = [uint64]0
+      uploadBps = [uint64]0
+      sessionDownloadBytes = [uint64]0
+      sessionUploadBytes = [uint64]0
+      totalBytes = [uint64]0
+      connectionCount = [uint32]$processConnections.Count
+      status = if ($processConnections.Count -gt 0) { 'active' } else { 'idle' }
+      isBlocked = $blockedPids.ContainsKey($processKey)
+      startTime = $start
+      recentSpeedHistory = @()
+      connections = @($processConnections)
+    }
+  }
+)
+[pscustomobject]@{
+  connections = @($connections)
+  processes = @($processes)
+} | ConvertTo-Json -Depth 8 -Compress
+`;
+  const result = JSON.parse(await runPowerShell(script)) as ConnectionQueryResult;
+  return {
+    connections: Array.isArray(result.connections) ? result.connections : [],
+    processes: Array.isArray(result.processes) ? result.processes : [],
+  };
+}
+
+async function probeTcp(host: string, timeoutMs: number): Promise<{ latency: number; status: 'success' | 'timeout' | 'error' }> {
+  if (!host.trim() || /[\s/\\]/.test(host)) throw new Error('Enter a valid hostname or IP address.');
   return new Promise(resolve => {
-    const start = process.hrtime();
     const socket = new net.Socket();
-    let isDone = false;
+    const start = process.hrtime.bigint();
+    let done = false;
 
+    const finish = (status: 'success' | 'timeout' | 'error', latency: number) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      resolve({ latency, status });
+    };
     socket.setTimeout(timeoutMs);
-
-    socket.connect(port, host, () => {
-      if (isDone) return;
-      isDone = true;
-      const diff = process.hrtime(start);
-      const latencyMs = (diff[0] * 1e9 + diff[1]) / 1e6;
-      socket.destroy();
-      resolve({ latency: latencyMs, status: 'success' });
+    socket.once('connect', () => finish('success', Number(process.hrtime.bigint() - start) / 1_000_000));
+    socket.once('timeout', () => finish('timeout', 0));
+    socket.once('error', error => {
+      finish(error.message.toLowerCase().includes('timed out') ? 'timeout' : 'error', 0);
     });
-
-    socket.on('timeout', () => {
-      if (isDone) return;
-      isDone = true;
-      socket.destroy();
-      resolve({ latency: timeoutMs, status: 'timeout' });
-    });
-
-    socket.on('error', () => {
-      if (isDone) return;
-      isDone = true;
-      socket.destroy();
-      // Even if port 443 RST occurs, round-trip time is captured
-      const diff = process.hrtime(start);
-      const latencyMs = (diff[0] * 1e9 + diff[1]) / 1e6;
-      resolve({ latency: Math.max(1.2, latencyMs), status: 'success' });
-    });
+    socket.connect(443, host);
   });
 }
 
-// Periodic Ping probe
-async function runPingProbe() {
-  const target = currentSettings.diagnostics.activePingTarget || '1.1.1.1';
-  const res = await performSocketProbe(target, 443, currentSettings.diagnostics.pingTimeoutMs);
-
-  if (!pingStatsCache[target]) {
-    pingStatsCache[target] = {
-      latency: res.latency,
-      min: res.latency,
-      max: res.latency,
-      avg: res.latency,
-      jitter: 1.2,
-      loss: res.status === 'timeout' ? 10 : 0,
-      history: [res.latency],
-    };
-  } else {
-    const entry = pingStatsCache[target];
-    entry.latency = res.latency;
-    entry.history.push(res.latency);
-    if (entry.history.length > 20) entry.history.shift();
-
-    const sum = entry.history.reduce((a, b) => a + b, 0);
-    entry.avg = sum / entry.history.length;
-    entry.min = Math.min(...entry.history);
-    entry.max = Math.max(...entry.history);
-
-    // Calculate jitter as mean absolute difference
-    let diffSum = 0;
-    for (let i = 1; i < entry.history.length; i++) {
-      diffSum += Math.abs(entry.history[i] - entry.history[i - 1]);
-    }
-    entry.jitter = entry.history.length > 1 ? diffSum / (entry.history.length - 1) : 0.8;
+async function runPingProbe(target: string): Promise<PingResult> {
+  const cleanTarget = target.trim();
+  const probe = await probeTcp(cleanTarget, Math.max(250, Math.min(10000, Number(currentSettings.diagnostics.pingTimeoutMs) || 1500)));
+  const now = Date.now();
+  if (currentPingTarget !== cleanTarget) {
+    currentPingTarget = cleanTarget;
+    currentPingHistory = [];
   }
+  if (probe.status === 'success') {
+    currentPingHistory.push(probe.latency);
+    currentPingHistory = currentPingHistory.slice(-20);
+  }
+  const average = currentPingHistory.length
+    ? currentPingHistory.reduce((total, item) => total + item, 0) / currentPingHistory.length
+    : 0;
+  const jitter = currentPingHistory.length > 1
+    ? currentPingHistory.slice(1).reduce((total, value, index) => total + Math.abs(value - currentPingHistory[index]), 0) / (currentPingHistory.length - 1)
+    : 0;
+  const result: PingResult = {
+    target: cleanTarget,
+    host: cleanTarget,
+    latencyMs: probe.latency,
+    minLatencyMs: currentPingHistory.length ? Math.min(...currentPingHistory) : 0,
+    maxLatencyMs: currentPingHistory.length ? Math.max(...currentPingHistory) : 0,
+    avgLatencyMs: average,
+    jitterMs: jitter,
+    packetLossPercent: probe.status === 'success' ? 0 : 100,
+    status: probe.status,
+    lastChecked: now,
+    history: [...currentPingHistory],
+  };
+  if (probe.status === 'success') lastSuccessfulPing = result;
+  return result;
 }
 
-setInterval(runPingProbe, 2000);
-runPingProbe();
-
-// API Endpoints
-app.get('/api/network/adapters', (req, res) => {
-  res.json(getSystemAdapters());
+app.get('/api/network/adapters', async (_req, res) => {
+  try {
+    res.json(await queryAdapters());
+  } catch (error) {
+    sendFailure(res, error, 'Network adapters');
+  }
 });
 
-app.get('/api/network/live-stats', (req, res) => {
-  res.json({
-    timestamp: Date.now(),
-    downloadBps: currentDownloadBps,
-    uploadBps: currentUploadBps,
-    sessionDownloadBytes,
-    sessionUploadBytes,
-    totalSessionBytes: sessionDownloadBytes + sessionUploadBytes,
-    dailyDownloadBytes,
-    dailyUploadBytes,
-    activeAdapterId: currentSettings.monitoring.adapterId === 'auto' ? 'Ethernet0' : currentSettings.monitoring.adapterId,
-  });
+app.get('/api/network/live-stats', async (req, res) => {
+  try {
+    const adapterId = typeof req.query.adapterId === 'string' ? req.query.adapterId : currentSettings.monitoring.adapterId || 'auto';
+    res.json(await sampleLiveStats(adapterId));
+  } catch (error) {
+    sendFailure(res, error, 'Network counters');
+  }
 });
 
 app.get('/api/network/ping', async (req, res) => {
-  const target = (req.query.target as string) || currentSettings.diagnostics.activePingTarget || '1.1.1.1';
-  if (req.query.target && typeof req.query.target === 'string') {
-    currentSettings.diagnostics.activePingTarget = req.query.target;
-  }
-  
-  const probe = await performSocketProbe(target, 443, 1200);
-  let cached = pingStatsCache[target];
-
-  if (!cached) {
-    cached = {
-      latency: probe.latency,
-      min: probe.latency,
-      max: probe.latency,
-      avg: probe.latency,
-      jitter: 1.1,
-      loss: probe.status === 'timeout' ? 10 : 0,
-      history: [probe.latency],
-    };
-    pingStatsCache[target] = cached;
-  } else {
-    cached.latency = probe.latency;
-    cached.history.push(probe.latency);
-    if (cached.history.length > 20) cached.history.shift();
-
-    const sum = cached.history.reduce((a, b) => a + b, 0);
-    cached.avg = sum / cached.history.length;
-    cached.min = Math.min(...cached.history);
-    cached.max = Math.max(...cached.history);
-    if (probe.status === 'timeout') {
-      cached.loss = Math.min(100, cached.loss + 5);
-    } else {
-      cached.loss = Math.max(0, cached.loss - 2);
+  try {
+    const target = typeof req.query.target === 'string'
+      ? req.query.target
+      : currentSettings.diagnostics.activePingTarget;
+    if (typeof req.query.target === 'string') {
+      currentSettings.diagnostics.activePingTarget = target;
+      currentSettings = mergeSettings(currentSettings);
+      saveSettingsFile(currentSettings);
     }
+    res.json(await runPingProbe(target));
+  } catch (error) {
+    sendFailure(res, error, 'Ping probe');
   }
-
-  res.json({
-    target,
-    host: target,
-    latencyMs: cached.latency,
-    minLatencyMs: cached.min,
-    maxLatencyMs: cached.max,
-    avgLatencyMs: cached.avg,
-    jitterMs: cached.jitter,
-    packetLossPercent: cached.loss,
-    status: probe.status,
-    lastChecked: Date.now(),
-    history: cached.history,
-  });
 });
 
-app.get('/api/processes', (req, res) => {
-  const result = trackedProcesses.map(proc => {
-    const latestSpeed = proc.recentSpeeds[proc.recentSpeeds.length - 1] || { down: 0, up: 0 };
-    return {
-      pid: proc.pid,
-      name: proc.name,
-      friendlyName: proc.friendlyName,
-      exeName: proc.exeName,
-      fullPath: proc.fullPath,
-      icon: proc.icon,
-      downloadBps: latestSpeed.down,
-      uploadBps: latestSpeed.up,
-      sessionDownloadBytes: proc.sessionDown,
-      sessionUploadBytes: proc.sessionUp,
-      totalBytes: proc.sessionDown + proc.sessionUp,
-      connectionCount: proc.connectionCount,
-      status: proc.status,
-      isBlocked: blockedExes.has(proc.exeName.toLowerCase()),
-      startTime: proc.startTime,
-      recentSpeedHistory: proc.recentSpeeds,
-      connections: proc.connections,
-    };
-  });
-  res.json(result);
+app.get('/api/processes', async (_req, res) => {
+  try {
+    res.json((await queryConnectionsAndProcesses()).processes);
+  } catch (error) {
+    sendFailure(res, error, 'Process enumeration');
+  }
 });
 
-app.post('/api/processes/block', (req, res) => {
-  const { exeName, block } = req.body;
-  if (!exeName) {
-    return res.status(400).json({ error: 'exeName is required' });
+app.get('/api/network/connections', async (_req, res) => {
+  try {
+    res.json((await queryConnectionsAndProcesses()).connections);
+  } catch (error) {
+    sendFailure(res, error, 'Network connection enumeration');
+  }
+});
+
+app.post('/api/processes/block', async (req, res) => {
+  const pidValue = Number(req.body?.pid);
+  const shouldBlock = req.body?.block === true;
+  if (!Number.isSafeInteger(pidValue) || pidValue <= 0) {
+    res.status(400).json({ error: 'A valid positive process PID is required.' });
+    return;
   }
 
-  const key = String(exeName).toLowerCase();
-  const shouldBlock = Boolean(block);
-
-  if (shouldBlock) {
-    blockedExes.add(key);
-  } else {
-    blockedExes.delete(key);
-  }
-
-  // Also zero out current speed in tracked processes if blocked
-  trackedProcesses.forEach(proc => {
-    if (proc.exeName.toLowerCase() === key && shouldBlock) {
-      proc.recentSpeeds.push({ time: Date.now(), down: 0, up: 0 });
-    }
-  });
+  const ruleOut = `NetScopeX-Blocked-${pidValue}-out`;
+  const ruleIn = `NetScopeX-Blocked-${pidValue}-in`;
+  const script = shouldBlock ? String.raw`
+$targetPid = __PID__
+$ruleOut = '__OUT__'
+$ruleIn = '__IN__'
+$process = Get-CimInstance Win32_Process -Filter "ProcessId = $targetPid" -ErrorAction Stop
+if ($null -eq $process) { throw "Process PID $targetPid is no longer running." }
+$program = [string]$process.ExecutablePath
+if ([string]::IsNullOrWhiteSpace($program) -or -not (Test-Path -LiteralPath $program -PathType Leaf)) { throw "Windows did not provide a valid executable path for PID $targetPid." }
+try {
+  Get-NetFirewallRule -DisplayName $ruleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  New-NetFirewallRule -DisplayName $ruleOut -Direction Outbound -Program $program -Action Block -Profile Any -Enabled True -ErrorAction Stop | Out-Null
+  New-NetFirewallRule -DisplayName $ruleIn -Direction Inbound -Program $program -Action Block -Profile Any -Enabled True -ErrorAction Stop | Out-Null
+  [pscustomobject]@{ success = $true } | ConvertTo-Json -Compress
+} catch {
+  Get-NetFirewallRule -DisplayName $ruleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  throw
+}
+`.replace('__PID__', String(pidValue)).replace('__OUT__', ruleOut).replace('__IN__', ruleIn) : String.raw`
+$ruleOut = '__OUT__'
+$ruleIn = '__IN__'
+Get-NetFirewallRule -DisplayName $ruleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+[pscustomobject]@{ success = $true } | ConvertTo-Json -Compress
+`.replace('__OUT__', ruleOut).replace('__IN__', ruleIn);
 
   try {
-    fs.writeFileSync(BLOCKED_FILE, JSON.stringify([...blockedExes], null, 2));
-  } catch (e) {
-    console.error('Failed to persist blocked apps:', e);
+    const output = await runPowerShell(script);
+    const result = JSON.parse(output) as { success?: boolean };
+    if (result.success !== true) throw new Error('Windows Firewall did not confirm the requested operation.');
+    res.json({ success: true, isBlocked: shouldBlock, exeName: String(req.body?.exeName || ''), pid: pidValue });
+  } catch (error) {
+    sendFailure(res, error, 'Windows Firewall');
   }
-
-  res.json({ success: true, exeName, isBlocked: shouldBlock, blockedCount: blockedExes.size });
 });
 
-app.get('/api/processes/blocked', (req, res) => {
-  res.json([...blockedExes]);
-});
-
-app.post('/api/processes/reset', (req, res) => {
-  const pid = req.body?.pid;
-  if (pid) {
-    const proc = trackedProcesses.find(p => p.pid === pid);
-    if (proc) {
-      proc.sessionDown = 0;
-      proc.sessionUp = 0;
-    }
-  } else {
-    trackedProcesses.forEach(proc => {
-      proc.sessionDown = 0;
-      proc.sessionUp = 0;
-    });
+app.post('/api/processes/reset', async (req, res) => {
+  if (req.body?.pid != null) {
+    res.status(501).json({ error: 'Per-process byte counters are unavailable until native ETW/WFP attribution is implemented.' });
+    return;
+  }
+  for (const sample of adapterSamples.values()) {
+    sample.sessionDownloadBytes = 0;
+    sample.sessionUploadBytes = 0;
+    sample.dailyDownloadBytes = 0;
+    sample.dailyUploadBytes = 0;
+    sample.lastTimestamp = 0;
   }
   res.json({ success: true });
 });
 
-app.get('/api/network/connections', (req, res) => {
-  const allConns: any[] = [];
-  trackedProcesses.forEach(proc => {
-    allConns.push(...proc.connections);
-  });
-  res.json(allConns);
-});
-
-// History Analytics
-function generateHistoryRecords() {
-  const now = new Date();
-  const records = [];
-  const apps = ['Google Chrome', 'Discord', 'Steam', 'Spotify', 'Visual Studio Code', 'Slack'];
-
-  for (let i = 24; i >= 0; i--) {
-    const d = new Date(now.getTime() - i * 3600 * 1000);
-    const hourStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    const dateStr = d.toISOString().split('T')[0];
-
-    // Realistic workday traffic curve
-    const hour = d.getHours();
-    const weight = hour >= 9 && hour <= 23 ? 1.0 + Math.sin((hour - 9) / 4) * 0.5 : 0.2;
-    const downloadBytes = Math.round((280 + Math.random() * 450) * 1024 * 1024 * weight);
-    const uploadBytes = Math.round((60 + Math.random() * 120) * 1024 * 1024 * weight);
-
-    records.push({
-      id: `hist_${d.getTime()}`,
-      timestamp: d.getTime(),
-      dateStr,
-      hourStr,
-      downloadBytes,
-      uploadBytes,
-      topApp: apps[Math.floor(Math.random() * apps.length)],
-    });
-  }
-  return records;
-}
-
-const cachedHistory = generateHistoryRecords();
-
 app.get('/api/history', (req, res) => {
-  const range = req.query.range || 'today';
-  if (range === 'today') {
-    res.json(cachedHistory.slice(-12));
-  } else {
-    res.json(cachedHistory);
-  }
+  const range = typeof req.query.range === 'string' ? req.query.range : 'today';
+  const today = new Date().toISOString().slice(0, 10);
+  const dayCount = range === '7d' ? 7 : range === '30d' ? 30 : range === 'all' ? Number.MAX_SAFE_INTEGER : 1;
+  const earliestDate = new Date(Date.now() - Math.max(0, dayCount - 1) * 86400000).toISOString().slice(0, 10);
+  const selected = historyRecords.filter(row => range === 'all' || (range === 'today' ? row.dateStr === today : row.dateStr >= earliestDate));
+  res.json(selected.map(({ actualMeasurement: _actualMeasurement, ...row }) => row));
 });
 
-// CSV Export
-app.get('/api/export/csv', (req, res) => {
-  res.setHeader('Content-Type', 'text/csv');
+app.get('/api/export/csv', (_req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="netscope_traffic_export.csv"');
-
-  let csv = 'Timestamp,Date,Hour,DownloadBytes,UploadBytes,TotalBytes,TopApplication\n';
-  cachedHistory.forEach(r => {
-    csv += `${r.timestamp},${r.dateStr},${r.hourStr},${r.downloadBytes},${r.uploadBytes},${r.downloadBytes + r.uploadBytes},"${r.topApp}"\n`;
+  const rows = ['Timestamp,Date,Hour,Adapter,DownloadBytes,UploadBytes'];
+  historyRecords.forEach(row => {
+    const adapter = row.topApp.replace(/"/g, '""');
+    rows.push(`${row.timestamp},${row.dateStr},${row.hourStr}," ${adapter}",${row.downloadBytes},${row.uploadBytes}`.replace('" ', '"'));
   });
-  res.send(csv);
+  res.send(rows.join('\n') + '\n');
 });
 
-// JSON Export
-app.get('/api/export/json', (req, res) => {
+app.get('/api/export/json', (_req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', 'attachment; filename="netscope_traffic_export.json"');
   res.json({
     exportedAt: new Date().toISOString(),
-    sessionSummary: {
-      sessionDownloadBytes,
-      sessionUploadBytes,
-      totalSessionBytes: sessionDownloadBytes + sessionUploadBytes,
-      dailyDownloadBytes,
-      dailyUploadBytes,
-    },
-    processes: trackedProcesses.map(p => ({
-      pid: p.pid,
-      name: p.name,
-      friendlyName: p.friendlyName,
-      sessionDownloadBytes: p.sessionDown,
-      sessionUploadBytes: p.sessionUp,
-    })),
-    hourlyHistory: cachedHistory,
+    source: 'Windows interface counters',
+    hourlyHistory: historyRecords.map(({ actualMeasurement: _actualMeasurement, ...row }) => row),
   });
 });
 
-app.get('/api/settings', (req, res) => {
-  res.json(currentSettings);
-});
+app.get('/api/settings', (_req, res) => res.json(currentSettings));
 
 app.post('/api/settings', (req, res) => {
-  currentSettings = { ...currentSettings, ...req.body };
   try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(currentSettings, null, 2));
-  } catch (e) {
-    console.error('Failed to write settings:', e);
+    currentSettings = mergeSettings(req.body);
+    monitoringEnabled = currentSettings.monitoring.enabled;
+    saveSettingsFile(currentSettings);
+    res.json({ success: true, settings: currentSettings });
+  } catch (error) {
+    sendFailure(res, error, 'Save settings');
   }
-  res.json({ success: true, settings: currentSettings });
 });
 
-app.post('/api/settings/reset-history', (req, res) => {
-  sessionDownloadBytes = 0;
-  sessionUploadBytes = 0;
-  dailyDownloadBytes = 0;
-  dailyUploadBytes = 0;
-  trackedProcesses.forEach(p => {
-    p.sessionDown = 0;
-    p.sessionUp = 0;
-  });
-  res.json({ success: true });
+app.post('/api/settings/reset-history', (_req, res) => {
+  try {
+    historyRecords = [];
+    persistHistoryIfDue(true);
+    res.json({ success: true });
+  } catch (error) {
+    sendFailure(res, error, 'Clear traffic history');
+  }
 });
 
-// System Tray status endpoint
-let trayState = {
-  isMinimizedToTray: false,
-  monitoringActive: true,
-};
-
-app.get('/api/tray/state', (req, res) => {
-  res.json(trayState);
-});
-
+// Browser mode cannot manipulate the native window or OS tray. Refuse instead of simulating it.
 app.post('/api/tray/action', (req, res) => {
-  const { action } = req.body;
-  if (action === 'minimize') {
-    trayState.isMinimizedToTray = true;
-  } else if (action === 'restore') {
-    trayState.isMinimizedToTray = false;
-  } else if (action === 'toggle_monitor') {
-    trayState.monitoringActive = !trayState.monitoringActive;
-    currentSettings.monitoring.enabled = trayState.monitoringActive;
-  }
-  res.json({ success: true, state: trayState });
+  res.status(501).json({
+    error: `Window/tray action "${String(req.body?.action || 'unknown')}" requires the packaged Tauri desktop application.`,
+  });
 });
 
-// Start server with Vite middleware integration
-async function startServer() {
+app.get('/api/tray/state', (_req, res) => {
+  res.json({ isNativeDesktop: false, monitoringActive: monitoringEnabled });
+});
+
+async function startServer(): Promise<void> {
   const vite = await createViteServer({
     server: { middlewareMode: true },
     appType: 'spa',
   });
-
   app.use(vite.middlewares);
+  app.use((error: unknown, _req: Request, res: Response, _next: (err?: unknown) => void) => {
+    sendFailure(res, error, 'HTTP server');
+  });
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[NetScope X] High-Performance Network Intelligence Suite running at http://localhost:${PORT}`);
+  app.listen(PORT, '127.0.0.1', () => {
+    console.log(`[NetScope X] Development UI at http://127.0.0.1:${PORT}`);
+    if (process.platform !== 'win32') {
+      console.warn('[NetScope X] Live system telemetry is disabled on this platform; no simulated stats will be shown.');
+    }
   });
 }
 
-startServer();
+void startServer().catch(error => {
+  console.error('[NetScope X] Could not start development server:', error);
+  process.exitCode = 1;
+});
