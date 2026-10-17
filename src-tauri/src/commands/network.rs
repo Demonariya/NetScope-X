@@ -4,17 +4,23 @@ use crate::network::ping::{PingProbeResult, PingService};
 use tauri::command;
 
 #[command]
-pub fn get_network_adapters() -> Vec<NetworkAdapter> {
-    NetworkAdapter::discover_all()
+pub async fn get_network_adapters() -> Result<Vec<NetworkAdapter>, String> {
+    tauri::async_runtime::spawn_blocking(NetworkAdapter::discover_all)
+        .await
+        .map_err(|error| format!("Network adapter worker failed: {error}"))
 }
 
 #[command]
-pub async fn ping_target(target: Option<String>) -> PingProbeResult {
+pub async fn ping_target(target: Option<String>) -> Result<PingProbeResult, String> {
     let host = target.unwrap_or_else(|| "1.1.1.1".to_string());
-    PingService::probe(&host, 1500).await
+    tauri::async_runtime::spawn_blocking(move || PingService::probe(&host, 1500))
+        .await
+        .map_err(|error| format!("Ping worker failed: {error}"))
 }
 
 #[command]
-pub fn get_active_connections() -> Result<Vec<SocketConnectionRecord>, String> {
-    SocketConnectionRecord::get_active_connections()
+pub async fn get_active_connections() -> Result<Vec<SocketConnectionRecord>, String> {
+    tauri::async_runtime::spawn_blocking(SocketConnectionRecord::get_active_connections)
+        .await
+        .map_err(|error| format!("Connection query worker failed: {error}"))?
 }

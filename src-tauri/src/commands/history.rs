@@ -13,21 +13,29 @@ fn history_database_path(app: &AppHandle) -> Result<std::path::PathBuf, String> 
 }
 
 #[command]
-pub fn get_traffic_history(
+pub async fn get_traffic_history(
     app: AppHandle,
     range: Option<String>,
 ) -> Result<Vec<TrafficHistoryEntry>, String> {
-    let database = Database::open(history_database_path(&app)?)
-        .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
-    HistoryStorage::get_history(database.connection(), range.as_deref().unwrap_or("today"))
-        .map_err(|error| format!("Cannot read traffic history: {error}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        let database = Database::open(history_database_path(&app)?)
+            .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
+        HistoryStorage::get_history(database.connection(), range.as_deref().unwrap_or("today"))
+            .map_err(|error| format!("Cannot read traffic history: {error}"))
+    })
+    .await
+    .map_err(|error| format!("Traffic history worker failed: {error}"))?
 }
 
 #[command]
-pub fn clear_history(app: AppHandle) -> Result<bool, String> {
-    let database = Database::open(history_database_path(&app)?)
-        .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
-    HistoryStorage::clear_history(database.connection())
-        .map_err(|error| format!("Cannot clear traffic history: {error}"))?;
-    Ok(true)
+pub async fn clear_history(app: AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let database = Database::open(history_database_path(&app)?)
+            .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
+        HistoryStorage::clear_history(database.connection())
+            .map_err(|error| format!("Cannot clear traffic history: {error}"))?;
+        Ok(true)
+    })
+    .await
+    .map_err(|error| format!("History clear worker failed: {error}"))?
 }

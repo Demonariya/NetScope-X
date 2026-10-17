@@ -52,15 +52,6 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AppRuntimeState::default())
         .setup(|app| {
-            #[cfg(windows)]
-            {
-                let session_name = format!("NetScopeX-{}", std::process::id());
-                if let Err(error) =
-                    crate::monitoring::etw::EtwSessionManager::start_session(&session_name)
-                {
-                    eprintln!("NetScope X per-application ETW telemetry is unavailable: {error}");
-                }
-            }
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             {
                 let tray = tray::create_tray(app.handle())?;

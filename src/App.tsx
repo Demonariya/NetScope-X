@@ -144,12 +144,11 @@ export default function App() {
         }
       };
 
-      const [adp, st, png, procs, conns, hist, cfg] = await Promise.all([
+      const [adp, st, png, procs, hist, cfg] = await Promise.all([
         safeLoad<NetworkAdapter[]>(api.getAdapters(), [], 'Network adapters'),
         safeLoad<NetworkStats | null>(api.getLiveStats(selectedAdapterId), null, 'Network counters'),
         safeLoad<PingResult | null>(api.getPing(), null, 'Ping probe'),
         safeLoad<ProcessNetworkUsage[]>(api.getProcesses(), [], 'Process list'),
-        safeLoad<SocketConnection[]>(api.getConnections(), [], 'Network sockets'),
         safeLoad<TrafficHistoryRecord[]>(api.getHistory('today'), [], 'Traffic history'),
         safeLoad<AppSettings>(api.getSettings(), DEFAULT_SETTINGS, 'Settings'),
       ]);
@@ -158,7 +157,7 @@ export default function App() {
       setLiveStats(st);
       setPingResult(png);
       setProcesses(procs);
-      setConnections(conns);
+      setConnections(procs.flatMap(process => process.connections ?? []));
       setHistory(hist);
       setSettings(cfg);
       setIsMonitoring(cfg.monitoring.enabled);
@@ -179,44 +178,93 @@ export default function App() {
     void init();
   }, []);
 
-  // Poll actual Windows counters, processes, sockets, and the selected ping target.
+  // Sample interface counters frequently, but never let slow OS queries overlap.
   useEffect(() => {
     if (!isMonitoring) return;
 
-    const interval = setInterval(async () => {
-      const [st, procs, png, conns] = await Promise.all([
-        api.getLiveStats(selectedAdapterId).catch(error => {
-          console.warn('Network counter sample failed:', error);
-          return null;
-        }),
-        api.getProcesses().catch(error => {
-          console.warn('Live process query failed:', error);
-          return null;
-        }),
-        api.getPing(activePingTarget).catch(error => {
-          console.warn('Ping probe failed:', error);
-          return null;
-        }),
-        api.getConnections().catch(error => {
-          console.warn('Socket query failed:', error);
-          return null;
-        }),
-      ]);
-
-      if (st) {
-        setLiveStats(st);
+    let inFlight = false;
+    let cancelled = false;
+    const pollStats = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
+      try {
+        const stats = await api.getLiveStats(selectedAdapterId);
+        if (cancelled) return;
+        setLiveStats(stats);
         setSpeedHistory(prev => {
-          const nowStr = formatTime(st.timestamp);
-          return [...prev, { time: nowStr, downBps: st.downloadBps, upBps: st.uploadBps }].slice(-120);
+          const time = formatTime(stats.timestamp);
+          return [...prev, { time, downBps: stats.downloadBps, upBps: stats.uploadBps }].slice(-120);
         });
+      } catch (error) {
+        console.warn('Network counter sample failed:', error);
+      } finally {
+        inFlight = false;
       }
-      if (procs) setProcesses(procs);
-      if (png) setPingResult(png);
-      if (conns) setConnections(conns);
-    }, settings?.monitoring.updateIntervalMs || 1000);
+    };
 
-    return () => clearInterval(interval);
-  }, [isMonitoring, settings?.monitoring.updateIntervalMs, activePingTarget, selectedAdapterId]);
+    const intervalMs = Math.max(500, Math.min(10000, settings?.monitoring.updateIntervalMs || 1000));
+    const timer = window.setInterval(() => { void pollStats(); }, intervalMs);
+    void pollStats();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isMonitoring, settings?.monitoring.updateIntervalMs, selectedAdapterId]);
+
+  // Process enumeration also gathers each PID's socket list; refresh both from that one query every 4 seconds.
+  useEffect(() => {
+    if (!isMonitoring) return;
+
+    let inFlight = false;
+    let cancelled = false;
+    const refreshProcesses = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
+      try {
+        const current = await api.getProcesses();
+        if (cancelled) return;
+        setProcesses(current);
+        setConnections(current.flatMap(process => process.connections ?? []));
+      } catch (error) {
+        console.warn('Live process query failed:', error);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const timer = window.setInterval(() => { void refreshProcesses(); }, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isMonitoring]);
+
+  // TCP latency uses blocking socket operations, so probe it less often than interface counters.
+  useEffect(() => {
+    if (!isMonitoring) return;
+
+    let inFlight = false;
+    let cancelled = false;
+    const pollPing = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
+      try {
+        const result = await api.getPing(activePingTarget);
+        if (!cancelled) setPingResult(result);
+      } catch (error) {
+        console.warn('Ping probe failed:', error);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const intervalMs = Math.max(1000, Math.min(15000, settings?.diagnostics.pingIntervalMs || 2000));
+    const timer = window.setInterval(() => { void pollPing(); }, intervalMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isMonitoring, activePingTarget, settings?.diagnostics.pingIntervalMs]);
 
   // Handle adapter selection
   const handleSelectAdapter = (id: string) => {

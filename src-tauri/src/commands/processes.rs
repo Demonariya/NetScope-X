@@ -4,29 +4,35 @@ use crate::windows_utils::run_powershell_elevated;
 use tauri::command;
 
 #[command]
-pub fn get_process_network_usage() -> Result<Vec<ProcessNetworkUsage>, String> {
-    ProcessNetworkUsage::enumerate_monitored_processes()
+pub async fn get_process_network_usage() -> Result<Vec<ProcessNetworkUsage>, String> {
+    tauri::async_runtime::spawn_blocking(ProcessNetworkUsage::enumerate_monitored_processes)
+        .await
+        .map_err(|error| format!("Process enumeration worker failed: {error}"))?
 }
 
 #[command]
-pub fn reset_process_stats(pid: Option<u32>) -> Result<bool, String> {
-    match pid {
-        Some(0) => {
-            return Err("PID 0 cannot be reset as an application process.".to_string());
+pub async fn reset_process_stats(pid: Option<u32>) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match pid {
+            Some(0) => {
+                return Err("PID 0 cannot be reset as an application process.".to_string());
+            }
+            Some(pid) => ProcessNetworkUsage::reset_traffic_counters(Some(pid))?,
+            None => {
+                MonitoringCollector::reset_session_counters()?;
+                ProcessNetworkUsage::reset_traffic_counters(None)?;
+            }
         }
-        Some(pid) => ProcessNetworkUsage::reset_traffic_counters(Some(pid))?,
-        None => {
-            MonitoringCollector::reset_session_counters()?;
-            ProcessNetworkUsage::reset_traffic_counters(None)?;
-        }
-    }
-    Ok(true)
+        Ok(true)
+    })
+    .await
+    .map_err(|error| format!("Process counter reset worker failed: {error}"))?
 }
 
 /// Add or remove Windows Firewall rules for the real executable associated with a live PID.
 /// Windows requires an elevated process for firewall rule changes; failures are returned to the UI.
 #[command]
-pub fn toggle_process_block(
+pub async fn toggle_process_block(
     exe_name: String,
     block: bool,
     pid: Option<u32>,
@@ -82,7 +88,9 @@ if (-not {block_value}) {{
 "#,
         block_value = if block { "$true" } else { "$false" }
     );
-    let output = run_powershell_elevated(&script)
+    let output = tauri::async_runtime::spawn_blocking(move || run_powershell_elevated(&script))
+        .await
+        .map_err(|error| format!("Firewall worker failed: {error}"))?
         .map_err(|error| format!("Windows Firewall operation failed: {error}"))?;
     if output.trim() == "success" {
         Ok(true)

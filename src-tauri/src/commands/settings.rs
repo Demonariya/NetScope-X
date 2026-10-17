@@ -31,34 +31,46 @@ fn settings_file<R: Runtime>(app: &AppHandle<R>) -> Result<std::path::PathBuf, S
 }
 
 #[command]
-pub fn get_settings(app: AppHandle) -> Result<AppConfig, String> {
-    let path = settings_file(&app)?;
-    let settings = SettingsPersistence::load_or_default(path);
-    app.state::<crate::AppRuntimeState>()
-        .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
-    apply_monitoring_state(&app, settings.monitoring.enabled);
-    Ok(settings)
+pub async fn get_settings(app: AppHandle) -> Result<AppConfig, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = settings_file(&app)?;
+        let settings = SettingsPersistence::load_or_default(path);
+        app.state::<AppRuntimeState>()
+            .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
+        apply_monitoring_state(&app, settings.monitoring.enabled);
+        Ok(settings)
+    })
+    .await
+    .map_err(|error| format!("Settings load worker failed: {error}"))?
 }
 
 #[command]
-pub fn save_settings(app: AppHandle, settings: AppConfig) -> Result<bool, String> {
-    let path = settings_file(&app)?;
-    SettingsPersistence::save(path, &settings)
-        .map_err(|error| format!("Could not save application settings: {error}"))?;
-    app.state::<crate::AppRuntimeState>()
-        .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
-    apply_monitoring_state(&app, settings.monitoring.enabled);
-    Ok(true)
+pub async fn save_settings(app: AppHandle, settings: AppConfig) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = settings_file(&app)?;
+        SettingsPersistence::save(path, &settings)
+            .map_err(|error| format!("Could not save application settings: {error}"))?;
+        app.state::<AppRuntimeState>()
+            .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
+        apply_monitoring_state(&app, settings.monitoring.enabled);
+        Ok(true)
+    })
+    .await
+    .map_err(|error| format!("Settings save worker failed: {error}"))?
 }
 
 #[command]
-pub fn set_monitoring_enabled(app: AppHandle, enabled: bool) -> bool {
-    apply_monitoring_state(&app, enabled);
-    enabled
+pub async fn set_monitoring_enabled(app: AppHandle, enabled: bool) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_monitoring_state(&app, enabled);
+        enabled
+    })
+    .await
+    .map_err(|error| format!("Monitoring toggle worker failed: {error}"))
 }
 
 #[command]
-pub fn system_tray_action(app: AppHandle, action: String) -> Result<bool, String> {
+pub async fn system_tray_action(app: AppHandle, action: String) -> Result<bool, String> {
     match action.as_str() {
         "minimize" => {
             let window = app
@@ -92,9 +104,22 @@ pub fn system_tray_action(app: AppHandle, action: String) -> Result<bool, String
         }
         "toggle_monitor" => {
             let enabled = app.state::<AppRuntimeState>().toggle_monitoring();
-            apply_monitoring_state(&app, enabled);
+            let worker_app = app.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                apply_monitoring_state(&worker_app, enabled);
+            })
+            .await
+            .map_err(|error| format!("Tray monitoring worker failed: {error}"))?;
         }
         "quit" => {
+            let stop_result = tauri::async_runtime::spawn_blocking(
+                crate::monitoring::etw::EtwSessionManager::stop_session,
+            )
+            .await
+            .map_err(|error| format!("ETW stop worker failed: {error}"))?;
+            if let Err(error) = stop_result {
+                eprintln!("NetScope X could not stop ETW before exit: {error}");
+            }
             app.exit(0);
         }
         _ => return Err(format!("Unknown system tray action: {action}")),
@@ -103,7 +128,15 @@ pub fn system_tray_action(app: AppHandle, action: String) -> Result<bool, String
 }
 
 #[command]
-pub fn exit_app(app: AppHandle) {
-    let _ = crate::monitoring::etw::EtwSessionManager::stop_session();
+pub async fn exit_app(app: AppHandle) -> Result<(), String> {
+    let stop_result = tauri::async_runtime::spawn_blocking(
+        crate::monitoring::etw::EtwSessionManager::stop_session,
+    )
+    .await
+    .map_err(|error| format!("ETW stop worker failed: {error}"))?;
+    if let Err(error) = stop_result {
+        eprintln!("NetScope X could not stop ETW before exit: {error}");
+    }
     app.exit(0);
+    Ok(())
 }

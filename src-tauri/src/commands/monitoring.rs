@@ -30,20 +30,28 @@ fn persist_hour_sample(app: &AppHandle, stats: &LiveNetworkStats) -> Result<(), 
 }
 
 #[command]
-pub fn get_live_network_stats(
+pub async fn get_live_network_stats(
     app: AppHandle,
     adapter_id: Option<String>,
 ) -> Result<LiveNetworkStats, String> {
-    let collector = MonitoringCollector::new();
-    let stats = collector.get_latest_stats(adapter_id.as_deref().unwrap_or("auto"))?;
-    if let Err(error) = persist_hour_sample(&app, &stats) {
-        eprintln!("NetScope X could not persist history: {error}");
-    }
-    Ok(stats)
+    tauri::async_runtime::spawn_blocking(move || {
+        let collector = MonitoringCollector::new();
+        let stats = collector.get_latest_stats(adapter_id.as_deref().unwrap_or("auto"))?;
+        if let Err(error) = persist_hour_sample(&app, &stats) {
+            eprintln!("NetScope X could not persist history: {error}");
+        }
+        Ok(stats)
+    })
+    .await
+    .map_err(|error| format!("Network monitor worker failed: {error}"))?
 }
 
 #[command]
-pub fn reset_network_session_stats() -> Result<bool, String> {
-    MonitoringCollector::reset_session_counters()?;
-    Ok(true)
+pub async fn reset_network_session_stats() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        MonitoringCollector::reset_session_counters()?;
+        Ok(true)
+    })
+    .await
+    .map_err(|error| format!("Network counter reset worker failed: {error}"))?
 }

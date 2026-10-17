@@ -23,7 +23,7 @@ pub struct PingService;
 impl PingService {
     /// Performs real network latency probing.
     /// On Windows, uses IcmpSendEcho when available, falling back to TCP socket handshake.
-    pub async fn probe(target: &str, timeout_ms: u64) -> PingProbeResult {
+    pub fn probe(target: &str, timeout_ms: u64) -> PingProbeResult {
         let start = Instant::now();
         let target_str = if target.contains(':') {
             target.to_string()
