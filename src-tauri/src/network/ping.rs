@@ -35,10 +35,12 @@ impl PingService {
 
         if let Ok(addrs) = target_str.to_socket_addrs() {
             for addr in addrs {
-                if let Ok(_) = std::net::TcpStream::connect_timeout(
+                if std::net::TcpStream::connect_timeout(
                     &addr,
                     std::time::Duration::from_millis(timeout_ms),
-                ) {
+                )
+                .is_ok()
+                {
                     latency = start.elapsed().as_secs_f64() * 1000.0;
                     success = true;
                     break;
