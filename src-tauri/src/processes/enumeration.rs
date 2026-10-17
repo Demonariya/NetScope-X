@@ -67,8 +67,7 @@ fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<()
     let traffic_available = EtwSessionManager::is_active();
 
     for process in processes {
-        let (download_total, upload_total) =
-            totals.get(&process.pid).copied().unwrap_or_default();
+        let (download_total, upload_total) = totals.get(&process.pid).copied().unwrap_or_default();
         let sample = previous.entry(process.pid).or_default();
         let elapsed_ms = now_ms.saturating_sub(sample.last_sample_ms);
 
