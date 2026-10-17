@@ -82,10 +82,44 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
 
-      # npm can omit platform-specific optional dependencies from the lockfile.
-      # Pin the native binding to the Rolldown version already locked by Vite.
-      - name: Ensure Rolldown Windows x64 native binding is installed
-        run: npm install --no-save --legacy-peer-deps @rolldown/binding-win32-x64-msvc@1.2.14
+      # npm can omit platform-specific optional dependencies from a lockfile
+      # generated on another OS. Install every Windows-native frontend binding
+      # explicitly, using the exact versions in package-lock.json.
+      - name: Install Windows x64 native frontend bindings
+        run: >-
+          npm install --no-save --legacy-peer-deps
+          @rolldown/binding-win32-x64-msvc@1.2.14
+          @tailwindcss/oxide-win32-x64-msvc@4.3.3
+          lightningcss-win32-x64-msvc@1.33.0
+          lightningcss-win32-x64-msvc-v132@npm:lightningcss-win32-x64-msvc@1.32.0
+
+      # LightningCSS loads its version-specific binary beside its own package.
+      # Copy both versions because Vite and Tailwind use different locked versions.
+      - name: Place version-matched LightningCSS native binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $binding133 = Join-Path $PWD 'node_modules/lightningcss-win32-x64-msvc/lightningcss.win32-x64-msvc.node'
+          $binding132 = Join-Path $PWD 'node_modules/lightningcss-win32-x64-msvc-v132/lightningcss.win32-x64-msvc.node'
+          $viteLightningCss = Join-Path $PWD 'node_modules/lightningcss/lightningcss.win32-x64-msvc.node'
+          $tailwindLightningCss = Join-Path $PWD 'node_modules/@tailwindcss/node/node_modules/lightningcss/lightningcss.win32-x64-msvc.node'
+
+          if (-not (Test-Path -LiteralPath $binding133)) {
+            throw "Missing LightningCSS 1.33.0 Windows x64 binding: $binding133"
+          }
+          if (-not (Test-Path -LiteralPath $binding132)) {
+            throw "Missing LightningCSS 1.32.0 Windows x64 binding: $binding132"
+          }
+          if (-not (Test-Path -LiteralPath (Split-Path -Parent $viteLightningCss))) {
+            throw "Vite LightningCSS package was not installed: $viteLightningCss"
+          }
+          if (-not (Test-Path -LiteralPath (Split-Path -Parent $tailwindLightningCss))) {
+            throw "Tailwind LightningCSS package was not installed: $tailwindLightningCss"
+          }
+
+          Copy-Item -LiteralPath $binding133 -Destination $viteLightningCss -Force
+          Copy-Item -LiteralPath $binding132 -Destination $tailwindLightningCss -Force
+          Write-Host 'Installed LightningCSS 1.33.0 and 1.32.0 native bindings.'
 
       - name: Build frontend production assets
         run: npm run build
