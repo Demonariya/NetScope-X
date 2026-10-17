@@ -1,6 +1,8 @@
+use crate::network::connections::SocketConnectionRecord;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProcessNetworkUsage {
     pub pid: u32,
     pub name: String,
@@ -18,9 +20,11 @@ pub struct ProcessNetworkUsage {
     pub is_blocked: bool,
     pub start_time: u64,
     pub recent_speed_history: Vec<SpeedSample>,
+    pub connections: Vec<SocketConnectionRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SpeedSample {
     pub time: u64,
     pub down: u64,
@@ -54,6 +58,7 @@ impl ProcessNetworkUsage {
                 is_blocked: false,
                 start_time: now - 3600 * 1000 * 3,
                 recent_speed_history: vec![],
+                connections: vec![],
             },
             ProcessNetworkUsage {
                 pid: 11048,
@@ -73,6 +78,7 @@ impl ProcessNetworkUsage {
                 is_blocked: false,
                 start_time: now - 3600 * 1000 * 4,
                 recent_speed_history: vec![],
+                connections: vec![],
             },
         ]
     }

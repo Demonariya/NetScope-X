@@ -20,6 +20,7 @@ pub enum AdapterStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NetworkAdapter {
     pub id: String,
     pub name: String,

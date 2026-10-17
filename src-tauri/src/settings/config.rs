@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub monitoring: MonitoringConfig,
     pub diagnostics: DiagnosticsConfig,
@@ -10,6 +11,7 @@ pub struct AppConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MonitoringConfig {
     pub enabled: bool,
     pub per_app_enabled: bool,
@@ -20,6 +22,7 @@ pub struct MonitoringConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DiagnosticsConfig {
     pub ping_targets: Vec<PingTargetConfig>,
     pub active_ping_target: String,
@@ -29,6 +32,7 @@ pub struct DiagnosticsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PingTargetConfig {
     pub id: String,
     pub name: String,
@@ -36,6 +40,7 @@ pub struct PingTargetConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StartupConfig {
     pub start_with_windows: bool,
     pub launch_minimized: bool,
@@ -45,12 +50,14 @@ pub struct StartupConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StorageConfig {
     pub data_retention_days: u32,
     pub auto_prune: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppearanceConfig {
     pub theme: String,
     pub accent_color: String,
