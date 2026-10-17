@@ -65,7 +65,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
   const filteredAndSorted = useMemo(() => {
     return processes
       .filter(proc => {
-        if (filterMode === 'active' && proc.downloadBps === 0 && proc.uploadBps === 0) {
+        if (filterMode === 'active' && proc.connectionCount === 0) {
           return false;
         }
         if (filterMode === 'blocked' && !proc.isBlocked) {
@@ -95,7 +95,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
   return (
     <div className="space-y-3 p-3 max-w-full pb-16 w-full">
       <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-        <p className="text-[10px] leading-relaxed text-amber-200/90">The process and socket lists are read from Windows. Per-application byte rates are not yet available from the native ETW collector, so this view deliberately does not invent per-process traffic totals.</p>
+        <p className="text-[10px] leading-relaxed text-amber-200/90">Processes and sockets are read from Windows. Per-app throughput and byte totals show Unavailable until the ETW/WFP attribution collector is implemented; zeroes are not presented as measured traffic.</p>
       </div>
       {/* Header & Controls Strip */}
       <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 shadow-sm space-y-2.5">
@@ -207,8 +207,9 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
           filteredAndSorted.map(proc => {
             const isExpanded = expandedPids.has(proc.pid);
             const isBlocked = !!proc.isBlocked;
-            const down = isBlocked ? { value: '0', unit: 'B/s', full: '0 B/s' } : formatSpeed(proc.downloadBps);
-            const up = isBlocked ? { value: '0', unit: 'B/s', full: '0 B/s' } : formatSpeed(proc.uploadBps);
+            const hasPerAppTraffic = proc.downloadBps > 0 || proc.uploadBps > 0 || proc.totalBytes > 0 || proc.sessionDownloadBytes > 0 || proc.sessionUploadBytes > 0;
+            const down = formatSpeed(proc.downloadBps);
+            const up = formatSpeed(proc.uploadBps);
             const iconSrc = proc.icon || getProcessIconSvg(proc.exeName);
             const hasActiveTraffic = !isBlocked && (proc.downloadBps > 0 || proc.uploadBps > 0);
 
@@ -302,21 +303,21 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
                     <div className="p-2 rounded bg-slate-950/70 border border-slate-800/60 flex items-center justify-between">
                       <span className="text-[10px] text-slate-400 uppercase font-sans">Down</span>
                       <span className={`font-semibold tabular-nums ${isBlocked ? 'text-rose-400/70' : proc.downloadBps > 0 ? 'text-sky-400' : 'text-slate-400'}`}>
-                        {isBlocked ? '0 B/s' : down.full}
+                        {isBlocked ? 'Blocked' : hasPerAppTraffic ? down.full : 'Unavailable'}
                       </span>
                     </div>
 
                     <div className="p-2 rounded bg-slate-950/70 border border-slate-800/60 flex items-center justify-between">
                       <span className="text-[10px] text-slate-400 uppercase font-sans">Up</span>
                       <span className={`font-semibold tabular-nums ${isBlocked ? 'text-rose-400/70' : proc.uploadBps > 0 ? 'text-teal-400' : 'text-slate-400'}`}>
-                        {isBlocked ? '0 B/s' : up.full}
+                        {isBlocked ? 'Blocked' : hasPerAppTraffic ? up.full : 'Unavailable'}
                       </span>
                     </div>
 
                     <div className="p-2 rounded bg-slate-950/70 border border-slate-800/60 flex items-center justify-between">
                       <span className="text-[10px] text-slate-400 uppercase font-sans">Session</span>
                       <span className="text-slate-300 tabular-nums">
-                        {formatBytes(proc.totalBytes)}
+                        {hasPerAppTraffic ? formatBytes(proc.totalBytes) : '--'}
                       </span>
                     </div>
 
@@ -387,8 +388,8 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
                             Session Transferred
                           </span>
                           <div className="flex items-center gap-3 font-mono text-slate-200 mt-0.5">
-                            <span className="text-sky-400">↓ {formatBytes(proc.sessionDownloadBytes)}</span>
-                            <span className="text-teal-400">↑ {formatBytes(proc.sessionUploadBytes)}</span>
+                            <span className="text-sky-400">↓ {hasPerAppTraffic ? formatBytes(proc.sessionDownloadBytes) : '--'}</span>
+                            <span className="text-teal-400">↑ {hasPerAppTraffic ? formatBytes(proc.sessionUploadBytes) : '--'}</span>
                           </div>
                         </div>
 

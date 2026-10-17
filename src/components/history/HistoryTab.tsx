@@ -235,7 +235,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   {item.hourStr}
                 </span>
                 <span className="text-[10px] text-slate-400 truncate block">
-                  Top: <span className="text-slate-200">{item.topApp}</span>
+                  Interface: <span className="text-slate-200">{item.topApp}</span>
                 </span>
               </div>
 

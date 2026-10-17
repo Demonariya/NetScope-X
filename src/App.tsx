@@ -294,8 +294,12 @@ export default function App() {
           'success'
         );
       }
-    } catch {
-      addToast('Firewall Rule Error', `Failed to update rule for ${exeName}`, 'error');
+    } catch (error) {
+      addToast(
+        'Firewall Rule Error',
+        error instanceof Error ? error.message : `Failed to update rule for ${exeName}`,
+        'error'
+      );
     }
   };
 

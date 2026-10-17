@@ -29,8 +29,8 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
     0
   );
   const udpConns = totalConns - tcpConns;
-  const tcpPercent = totalConns > 0 ? Math.round((tcpConns / totalConns) * 100) : 82;
-  const udpPercent = 100 - tcpPercent;
+  const tcpPercent = totalConns > 0 ? Math.round((tcpConns / totalConns) * 100) : 0;
+  const udpPercent = totalConns > 0 ? 100 - tcpPercent : 0;
 
   // Format hourly history data for chart
   const hourlyData = history.slice(-12).map(item => ({
@@ -41,11 +41,17 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
     topApp: item.topApp,
   }));
 
-  // Top 5 consumers
-  const topConsumers = [...processes]
-    .sort((a, b) => b.totalBytes - a.totalBytes)
-    .slice(0, 5);
-
+  // Do not rank processes when no per-app byte counters exist.
+  const hasProcessAttribution = processes.some(process =>
+    process.totalBytes > 0 ||
+    process.downloadBps > 0 ||
+    process.uploadBps > 0 ||
+    process.sessionDownloadBytes > 0 ||
+    process.sessionUploadBytes > 0
+  );
+  const topConsumers = hasProcessAttribution
+    ? [...processes].sort((a, b) => b.totalBytes - a.totalBytes).slice(0, 5)
+    : [];
   const totalSessionData = processes.reduce((acc, p) => acc + p.totalBytes, 0);
 
   return (
@@ -63,7 +69,7 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
           <div>
             <div className="flex justify-between text-xs mb-1">
               <span className="text-slate-300 font-medium">TCP (Reliable Stream)</span>
-              <span className="font-mono text-sky-400 font-semibold">{tcpPercent}%</span>
+              <span className="font-mono text-sky-400 font-semibold">{totalConns > 0 ? `${tcpPercent}%` : '--'}</span>
             </div>
             <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
               <div
@@ -76,7 +82,7 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
           <div>
             <div className="flex justify-between text-xs mb-1">
               <span className="text-slate-300 font-medium">UDP (Real-Time Media/Voice)</span>
-              <span className="font-mono text-teal-400 font-semibold">{udpPercent}%</span>
+              <span className="font-mono text-teal-400 font-semibold">{totalConns > 0 ? `${udpPercent}%` : '--'}</span>
             </div>
             <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
               <div
@@ -95,21 +101,19 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
         </div>
       </div>
 
-      {/* 2. Peak Session Activity Card */}
-      <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 space-y-2">
+      {/* Per-process attribution is not measured yet; do not show sample throughput. */}
+      <div className="rounded-xl bg-slate-900/80 border border-amber-500/20 p-3 space-y-2">
         <div className="flex items-center gap-2">
           <Zap className="w-4 h-4 text-amber-400 shrink-0" />
-          <h3 className="text-xs font-semibold text-slate-100">Peak Session Activity</h3>
+          <h3 className="text-xs font-semibold text-slate-100">Per-Application Traffic</h3>
         </div>
         <p className="text-xs text-slate-400 leading-relaxed">
-          Highest throughput detected during session reached{' '}
-          <span className="text-slate-200 font-mono font-semibold">12.4 MB/s</span> driven by{' '}
-          <span className="text-sky-300 font-medium">Google Chrome</span> streaming buffer.
+          Live interface throughput is measured from Windows network counters. Per-process peak rates and consumer rankings are unavailable until the ETW/WFP byte-attribution collector is implemented.
         </p>
         <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px]">
-          <span className="text-slate-400">Kernel ETW Session:</span>
-          <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
-            Active & Synchronized
+          <span className="text-slate-400">Per-app attribution</span>
+          <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-medium">
+            Not available
           </span>
         </div>
       </div>
@@ -159,7 +163,9 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
         </div>
 
         <div className="space-y-2">
-          {topConsumers.map((proc, index) => {
+          {!hasProcessAttribution ? (
+            <p className="text-xs text-slate-400">No per-application byte counters are available yet. Interface history below is measured from Windows.</p>
+          ) : topConsumers.map((proc, index) => {
             const share = totalSessionData > 0 ? (proc.totalBytes / totalSessionData) * 100 : 0;
             return (
               <div key={proc.pid} className="space-y-1">

@@ -3,7 +3,6 @@ import { execFile } from 'node:child_process';
 import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { createServer as createViteServer } from 'vite';
 import type {
   AppSettings,
@@ -157,7 +156,6 @@ const adapterSamples = new Map<string, AdapterSample>();
 let monitoringEnabled = currentSettings.monitoring.enabled;
 let currentPingHistory: number[] = [];
 let currentPingTarget = currentSettings.diagnostics.activePingTarget;
-let lastSuccessfulPing: PingResult | null = null;
 
 function runPowerShell(script: string, timeout = 15000): Promise<string> {
   if (process.platform !== 'win32') {
@@ -534,7 +532,6 @@ async function runPingProbe(target: string): Promise<PingResult> {
     lastChecked: now,
     history: [...currentPingHistory],
   };
-  if (probe.status === 'success') lastSuccessfulPing = result;
   return result;
 }
 
