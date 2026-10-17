@@ -52,6 +52,15 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
   const downSpeed = formatSpeed(liveStats?.downloadBps || 0);
   const upSpeed = formatSpeed(liveStats?.uploadBps || 0);
+  const latencyMs = typeof pingResult?.latencyMs === 'number' && Number.isFinite(pingResult.latencyMs) ? pingResult.latencyMs : 0;
+  const minLatencyMs = typeof pingResult?.minLatencyMs === 'number' && Number.isFinite(pingResult.minLatencyMs) ? pingResult.minLatencyMs : latencyMs;
+  const maxLatencyMs = typeof pingResult?.maxLatencyMs === 'number' && Number.isFinite(pingResult.maxLatencyMs) ? pingResult.maxLatencyMs : latencyMs;
+  const avgLatencyMs = typeof pingResult?.avgLatencyMs === 'number' && Number.isFinite(pingResult.avgLatencyMs) ? pingResult.avgLatencyMs : latencyMs;
+  const jitterMs = typeof pingResult?.jitterMs === 'number' && Number.isFinite(pingResult.jitterMs) ? pingResult.jitterMs : 0;
+  const packetLossPercent = typeof pingResult?.packetLossPercent === 'number' && Number.isFinite(pingResult.packetLossPercent) ? pingResult.packetLossPercent : 0;
+  const latencyHistory = Array.isArray(pingResult?.history)
+    ? pingResult.history.filter(value => typeof value === 'number' && Number.isFinite(value))
+    : [];
 
   // Filter chart history based on timeframe
   const filteredHistory = React.useMemo(() => {
@@ -355,9 +364,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 Current Ping
               </span>
               <span className={`text-[9px] px-1 py-0.2 rounded font-semibold uppercase ${
-                (pingResult?.latencyMs || 0) < 40
+                latencyMs < 40
                   ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                  : (pingResult?.latencyMs || 0) < 100
+                  : latencyMs < 100
                   ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                   : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
               }`}>
@@ -365,7 +374,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               </span>
             </div>
             <span className="text-xl font-bold font-mono text-emerald-400 tabular-nums block mt-0.5">
-              {formatLatency(pingResult?.latencyMs || 0)}
+              {formatLatency(latencyMs)}
             </span>
           </div>
 
@@ -374,7 +383,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               Average Ping
             </span>
             <span className="text-base font-semibold font-mono text-slate-200 tabular-nums block mt-1">
-              {formatLatency(pingResult?.avgLatencyMs || 0)}
+              {formatLatency(avgLatencyMs)}
             </span>
           </div>
 
@@ -383,7 +392,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               Min / Max
             </span>
             <span className="text-xs font-semibold font-mono text-slate-200 tabular-nums block mt-1">
-              {pingResult ? `${pingResult.minLatencyMs.toFixed(0)} / ${pingResult.maxLatencyMs.toFixed(0)} ms` : '--'}
+              {pingResult ? `${minLatencyMs.toFixed(0)} / ${maxLatencyMs.toFixed(0)} ms` : '--'}
             </span>
           </div>
 
@@ -392,22 +401,22 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               Jitter / Loss
             </span>
             <span className="text-xs font-semibold font-mono text-sky-400 tabular-nums block mt-1">
-              {formatJitter(pingResult?.jitterMs || 0)} ({formatPercent(pingResult?.packetLossPercent || 0)})
+              {formatJitter(jitterMs)} ({formatPercent(packetLossPercent)})
             </span>
           </div>
         </div>
 
         {/* Latency History Sparkline Chart */}
-        {pingResult?.history && pingResult.history.length > 1 && (
+        {pingResult && latencyHistory.length > 1 && (
           <div className="mt-2.5 pt-2 border-t border-slate-800/60">
             <div className="flex items-center justify-between text-[10px] text-slate-400 pb-1">
-              <span>Latency Variance (Last {pingResult.history.length} Probes)</span>
-              <span className="font-mono text-emerald-400 font-semibold">{pingResult.latencyMs.toFixed(1)} ms</span>
+              <span>Latency Variance (Last {latencyHistory.length} Probes)</span>
+              <span className="font-mono text-emerald-400 font-semibold">{latencyMs.toFixed(1)} ms</span>
             </div>
             <div className="h-12 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
-                  data={pingResult.history.map((lat, idx) => ({ idx: idx + 1, lat: Number(lat.toFixed(1)) }))}
+                  data={latencyHistory.map((lat, idx) => ({ idx: idx + 1, lat: Number(lat.toFixed(1)) }))}
                   margin={{ top: 2, right: 2, left: 2, bottom: 0 }}
                 >
                   <defs>

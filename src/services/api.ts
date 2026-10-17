@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { normalizePingResult } from '../utils/normalizers';
 import {
   NetworkAdapter,
   NetworkStats,
@@ -147,8 +148,8 @@ export const api = {
     const host = target || '1.1.1.1';
     if (isTauri) {
       try {
-        const res = await tauriInvoke<PingResult>('ping_target', { target: host });
-        if (res) return res;
+        const res = await tauriInvoke<unknown>('ping_target', { target: host });
+        if (res) return normalizePingResult(res, host);
       } catch (err) {
         console.warn('Native ping_target warning:', err);
       }
@@ -156,7 +157,7 @@ export const api = {
     try {
       const query = `?target=${encodeURIComponent(host)}`;
       const res = await fetch(`/api/network/ping${query}`);
-      if (res.ok) return await res.json();
+      if (res.ok) return normalizePingResult(await res.json(), host);
     } catch {}
     return {
       target: host,

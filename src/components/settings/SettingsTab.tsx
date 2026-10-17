@@ -184,7 +184,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 { hex: '#ec4899', label: 'Pink' },
                 { hex: '#f59e0b', label: 'Amber' },
               ].map(({ hex, label }) => {
-                const isSelected = localSettings.appearance.accentColor === hex || accentColor === hex;
+                const isSelected = accentColor === hex;
                 return (
                   <button
                     key={hex}

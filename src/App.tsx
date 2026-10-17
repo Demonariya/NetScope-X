@@ -19,7 +19,8 @@ import {
   AppSettings,
 } from './types/network';
 import { api } from './services/api';
-import { formatTime } from './utils/formatters';
+import { formatTime, formatLatency } from './utils/formatters';
+import { DEFAULT_ACCENT_COLOR, getAccentCssVariables, normalizeHexColor } from './utils/appearance';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -28,9 +29,20 @@ export default function App() {
 
   // Theme state: dark | light | system
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>(() => {
-    const saved = localStorage.getItem('netscope_theme');
-    if (saved === 'dark' || saved === 'light' || saved === 'system') return saved;
+    try {
+      const saved = localStorage.getItem('netscope_theme');
+      if (saved === 'dark' || saved === 'light' || saved === 'system') return saved;
+    } catch {
+      // Storage may be unavailable in restricted webview contexts.
+    }
     return 'dark';
+  });
+  const [accentColor, setAccentColor] = useState<string>(() => {
+    try {
+      return normalizeHexColor(localStorage.getItem('netscope_accent_color')) ?? DEFAULT_ACCENT_COLOR;
+    } catch {
+      return DEFAULT_ACCENT_COLOR;
+    }
   });
 
   // Apply theme to DOM
@@ -69,6 +81,14 @@ export default function App() {
       return () => mql.removeEventListener('change', listener);
     }
   }, [theme]);
+
+  // Apply the selected accent to Tailwind's runtime sky color tokens.
+  useEffect(() => {
+    const root = document.documentElement;
+    for (const [property, value] of Object.entries(getAccentCssVariables(accentColor))) {
+      root.style.setProperty(property, value);
+    }
+  }, [accentColor]);
 
   // Core telemetry state
   const [adapters, setAdapters] = useState<NetworkAdapter[]>([]);
@@ -114,6 +134,14 @@ export default function App() {
         setConnections(conns);
         setHistory(hist);
         setSettings(cfg);
+        let storedAccent: string | null = null;
+        try {
+          storedAccent = normalizeHexColor(localStorage.getItem('netscope_accent_color'));
+        } catch {
+          // Prefer the in-memory/default accent when storage is unavailable.
+        }
+        const configuredAccent = normalizeHexColor(cfg?.appearance?.accentColor);
+        if (!storedAccent && configuredAccent) setAccentColor(configuredAccent);
         if (cfg?.diagnostics?.activePingTarget) {
           setActivePingTarget(cfg.diagnostics.activePingTarget);
         }
@@ -182,7 +210,7 @@ export default function App() {
             }
           : prev
       );
-      addToast('Ping Probe Switched', `Target: ${cleanTarget} (${res.latencyMs.toFixed(1)} ms)`, 'success');
+      addToast('Ping Probe Switched', `Target: ${cleanTarget} (${formatLatency(res.latencyMs)})`, 'success');
     } catch {
       addToast('Probe Failed', `Could not reach ${cleanTarget}`, 'error');
     }
@@ -232,6 +260,18 @@ export default function App() {
     }
   };
 
+  // Accent selection is applied immediately and persisted independently so it survives restarts.
+  const handleAccentColorChange = (color: string) => {
+    const normalized = normalizeHexColor(color);
+    if (!normalized) return;
+    setAccentColor(normalized);
+    try {
+      localStorage.setItem('netscope_accent_color', normalized);
+    } catch {
+      // The current session still uses the selected accent when storage is unavailable.
+    }
+  };
+
   // Handle Theme Change
   const handleThemeChange = (newTheme: 'dark' | 'light' | 'system') => {
     setTheme(newTheme);
@@ -241,6 +281,7 @@ export default function App() {
         appearance: {
           ...settings.appearance,
           theme: newTheme,
+          accentColor,
         },
       };
       setSettings(updated);
@@ -256,8 +297,19 @@ export default function App() {
 
   // Save settings
   const handleSaveSettings = async (newSettings: AppSettings) => {
-    setSettings(newSettings);
-    await api.saveSettings(newSettings);
+    const normalizedAccent = normalizeHexColor(newSettings.appearance?.accentColor) ?? accentColor;
+    const settingsToSave: AppSettings = {
+      ...newSettings,
+      appearance: { ...newSettings.appearance, accentColor: normalizedAccent },
+    };
+    setSettings(settingsToSave);
+    setAccentColor(normalizedAccent);
+    try {
+      localStorage.setItem('netscope_accent_color', normalizedAccent);
+    } catch {
+      // Saving other preferences should still proceed if storage is unavailable.
+    }
+    await api.saveSettings(settingsToSave);
   };
 
   // Reset session counters
@@ -300,6 +352,7 @@ export default function App() {
           onClose={handleClose}
           currentTheme={theme}
           onToggleTheme={handleToggleTheme}
+          accentColor={accentColor}
         />
 
         {/* Viewport Content Area with Vertical Scrolling */}
@@ -314,6 +367,7 @@ export default function App() {
               pingResult={pingResult}
               onSelectPingTarget={handleSelectPingTarget}
               speedHistory={speedHistory}
+              accentColor={accentColor}
             />
           )}
 
@@ -351,6 +405,8 @@ export default function App() {
               adapters={adapters}
               currentTheme={theme}
               onThemeChange={handleThemeChange}
+              accentColor={accentColor}
+              onAccentColorChange={handleAccentColorChange}
               onSaveSettings={handleSaveSettings}
               onResetSession={handleResetSession}
               onClearHistory={handleClearHistory}
@@ -363,6 +419,7 @@ export default function App() {
         <Navigation
           activeTab={activeTab}
           onTabChange={setActiveTab}
+          accentColor={accentColor}
         />
       </div>
 
