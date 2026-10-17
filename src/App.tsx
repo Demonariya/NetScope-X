@@ -8,7 +8,6 @@ import { TrafficTab } from './components/traffic/TrafficTab';
 import { ConnectionsTab } from './components/connections/ConnectionsTab';
 import { HistoryTab } from './components/history/HistoryTab';
 import { SettingsTab } from './components/settings/SettingsTab';
-import { SystemTrayModal } from './components/tray/SystemTrayModal';
 import { ToastContainer, ToastMessage } from './components/common/Toast';
 import {
   NetworkAdapter,
@@ -26,7 +25,6 @@ import { DEFAULT_ACCENT_COLOR, getAccentCssVariables, normalizeHexColor } from '
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [isMonitoring, setIsMonitoring] = useState(true);
-  const [isTrayModalOpen, setIsTrayModalOpen] = useState(false);
 
   // Theme state: dark | light | system
   const [theme, setTheme] = useState<'dark' | 'light' | 'system'>(() => {
@@ -163,6 +161,7 @@ export default function App() {
       setConnections(conns);
       setHistory(hist);
       setSettings(cfg);
+      setIsMonitoring(cfg.monitoring.enabled);
 
       let storedAccent: string | null = null;
       let localSavedTheme: string | null = null;
@@ -263,37 +262,34 @@ export default function App() {
     }
   };
 
-  // Toggle Block / Unblock process
+  // Change the real Windows Firewall rule, then verify it against a fresh Windows process query.
   const handleToggleBlock = async (exeName: string, block: boolean, pid?: number) => {
     try {
       await api.toggleBlockProcess(exeName, block, pid);
-      // Immediately reflect blocked state in UI
-      setProcesses(prev =>
-        prev.map(p =>
-          p.exeName.toLowerCase() === exeName.toLowerCase()
-            ? {
-                ...p,
-                isBlocked: block,
-                downloadBps: block ? 0 : p.downloadBps,
-                uploadBps: block ? 0 : p.uploadBps,
-              }
-            : p
-        )
-      );
+      const refreshedProcesses = await api.getProcesses();
+      setProcesses(refreshedProcesses);
 
-      if (block) {
-        addToast(
-          'Application Blocked',
-          `Traffic for ${exeName} blocked via Windows Firewall rule`,
-          'error'
-        );
-      } else {
-        addToast(
-          'Application Unblocked',
-          `Network access restored for ${exeName}`,
-          'success'
+      const target = refreshedProcesses.find(process =>
+        pid !== undefined
+          ? process.pid === pid
+          : process.exeName.toLowerCase() === exeName.toLowerCase()
+      );
+      if (!target) {
+        throw new Error('Windows accepted the request, but the target process was not returned for verification.');
+      }
+      if (target.isBlocked !== block) {
+        throw new Error(
+          `Windows Firewall did not confirm that ${exeName} is ${block ? 'blocked' : 'unblocked'}. Check the Windows Firewall service and retry.`
         );
       }
+
+      addToast(
+        block ? 'Application Blocked' : 'Application Unblocked',
+        block
+          ? `Windows Firewall confirmed the block rule for ${exeName}.`
+          : `Windows Firewall confirmed network access for ${exeName}.`,
+        'success'
+      );
     } catch (error) {
       addToast(
         'Firewall Rule Error',
@@ -364,6 +360,7 @@ export default function App() {
       // Saving other preferences should still proceed if storage is unavailable.
     }
     await api.saveSettings(settingsToSave);
+    setIsMonitoring(settingsToSave.monitoring.enabled);
   };
 
   // Reset measured network totals without deleting saved traffic history.
@@ -400,6 +397,14 @@ export default function App() {
     }
   };
 
+  const handleHideToTray = async () => {
+    try {
+      await api.hideWindow();
+    } catch (error) {
+      addToast('Hide to Tray Failed', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
   const handleMinimize = async () => {
     try {
       await api.minimizeWindow();
@@ -420,24 +425,6 @@ export default function App() {
     }
   };
 
-  const handleRestoreWindow = async () => {
-    try {
-      await api.restoreWindow();
-      setIsTrayModalOpen(false);
-    } catch (error) {
-      addToast('Restore Failed', error instanceof Error ? error.message : String(error), 'error');
-    }
-  };
-
-  const handleExitApp = async () => {
-    setIsTrayModalOpen(false);
-    try {
-      await api.exitApp();
-    } catch (error) {
-      addToast('Exit Failed', error instanceof Error ? error.message : String(error), 'error');
-    }
-  };
-
   return (
     <div className="min-h-screen w-full bg-[#070a0f] flex flex-col items-center justify-center overflow-hidden font-sans text-slate-100 p-0 select-none">
       {/* Strict 405 × 720 px, 9:16 Portrait Canvas Frame */}
@@ -449,7 +436,7 @@ export default function App() {
         <TitleBar
           isMonitoring={isMonitoring}
           onToggleMonitoring={handleToggleMonitoring}
-          onOpenTrayModal={() => setIsTrayModalOpen(true)}
+          onHideToTray={handleHideToTray}
           onMinimize={handleMinimize}
           onClose={handleClose}
           currentTheme={theme}
@@ -524,18 +511,6 @@ export default function App() {
           accentColor={accentColor}
         />
       </div>
-
-      {/* Interactive System Tray Simulation Modal */}
-      <SystemTrayModal
-        isOpen={isTrayModalOpen}
-        onClose={() => setIsTrayModalOpen(false)}
-        isMonitoring={isMonitoring}
-        onToggleMonitoring={handleToggleMonitoring}
-        liveStats={liveStats}
-        onOpenSettings={() => setActiveTab('settings')}
-        onRestore={handleRestoreWindow}
-        onExit={handleExitApp}
-      />
 
       {/* Toast Notification Container */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />

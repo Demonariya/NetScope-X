@@ -12,7 +12,7 @@ import {
 interface TitleBarProps {
   isMonitoring: boolean;
   onToggleMonitoring: () => void;
-  onOpenTrayModal: () => void;
+  onHideToTray: () => void;
   onMinimize: () => void;
   onClose: () => void;
   currentTheme?: 'dark' | 'light' | 'system';
@@ -23,7 +23,7 @@ interface TitleBarProps {
 export const TitleBar: React.FC<TitleBarProps> = ({
   isMonitoring,
   onToggleMonitoring,
-  onOpenTrayModal,
+  onHideToTray,
   onMinimize,
   onClose,
   currentTheme = 'dark',
@@ -84,8 +84,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         )}
 
         <button
-          onClick={onOpenTrayModal}
-          title="Inspect Windows System Tray Interface"
+          onClick={onHideToTray}
+          title="Hide NetScope X to the Windows system tray"
           className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
         >
           <Radio className="w-3.5 h-3.5" />

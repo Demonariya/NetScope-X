@@ -61,6 +61,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const latencyHistory = Array.isArray(pingResult?.history)
     ? pingResult.history.filter(value => typeof value === 'number' && Number.isFinite(value))
     : [];
+  const hasSuccessfulPing = pingResult?.status === 'success' && Number.isFinite(pingResult.latencyMs);
 
   // Filter chart history based on timeframe
   const filteredHistory = React.useMemo(() => {
@@ -105,11 +106,11 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
                     : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
                 }`}>
-                  {activeAdapter?.status === 'connected' ? 'Connected' : activeAdapter?.status === 'connecting' ? 'Connecting' : 'Disconnected'}
+                  {!activeAdapter ? 'Unavailable' : activeAdapter.status === 'connected' ? 'Connected' : activeAdapter.status === 'connecting' ? 'Connecting' : 'Disconnected'}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 truncate">
-                {activeAdapter?.description}
+                {activeAdapter?.description || 'No Windows adapter data available'}
               </p>
             </div>
           </div>
@@ -185,7 +186,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <span className="font-medium text-slate-300">Download Throughput</span>
             </div>
             <span className="text-[11px] text-slate-400 font-mono">
-              Session: {formatBytes(liveStats?.sessionDownloadBytes || 0)}
+              Session: {liveStats ? formatBytes(liveStats.sessionDownloadBytes) : '--'}
             </span>
           </div>
 
@@ -216,7 +217,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <span className="font-medium text-slate-300">Upload Throughput</span>
             </div>
             <span className="text-[11px] text-slate-400 font-mono">
-              Session: {formatBytes(liveStats?.sessionUploadBytes || 0)}
+              Session: {liveStats ? formatBytes(liveStats.sessionUploadBytes) : '--'}
             </span>
           </div>
 
@@ -370,13 +371,15 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 Current Ping
               </span>
               <span className={`text-[9px] px-1 py-0.2 rounded font-semibold uppercase ${
-                latencyMs < 40
+                !hasSuccessfulPing
+                  ? 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
+                  : latencyMs < 40
                   ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                   : latencyMs < 100
                   ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                   : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
               }`}>
-                {!pingResult ? 'Unavailable' : pingResult.status !== 'success' ? 'Timeout' : latencyMs < 40 ? 'Optimal' : latencyMs < 100 ? 'Good' : 'High'}
+                {!pingResult ? 'Unavailable' : pingResult.status === 'timeout' ? 'Timeout' : pingResult.status === 'error' ? 'Error' : latencyMs < 40 ? 'Optimal' : latencyMs < 100 ? 'Good' : 'High'}
               </span>
             </div>
             <span className="text-xl font-bold font-mono text-emerald-400 tabular-nums block mt-0.5">
@@ -407,13 +410,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               Jitter / Loss
             </span>
             <span className="text-xs font-semibold font-mono text-sky-400 tabular-nums block mt-1">
-              {formatJitter(jitterMs)} ({formatPercent(packetLossPercent)})
+              {hasSuccessfulPing ? `${formatJitter(jitterMs)} (${formatPercent(packetLossPercent)})` : '--'}
             </span>
           </div>
         </div>
 
         {/* Latency History Sparkline Chart */}
-        {pingResult && latencyHistory.length > 1 && (
+        {hasSuccessfulPing && latencyHistory.length > 1 && (
           <div className="mt-2.5 pt-2 border-t border-slate-800/60">
             <div className="flex items-center justify-between text-[10px] text-slate-400 pb-1">
               <span>Latency Variance (Last {latencyHistory.length} Probes)</span>
