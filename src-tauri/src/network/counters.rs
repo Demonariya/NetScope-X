@@ -17,9 +17,7 @@ impl InterfaceCounters {
     /// Read cumulative counters from Get-NetAdapterStatistics on Windows.
     /// The interface ID must be "auto" or a numeric Windows interface index.
     pub fn read_counters(adapter_id: &str) -> Result<Self, String> {
-        if adapter_id != "auto"
-            && !adapter_id.chars().all(|value| value.is_ascii_digit())
-        {
+        if adapter_id != "auto" && !adapter_id.chars().all(|value| value.is_ascii_digit()) {
             return Err("Invalid network interface ID.".to_string());
         }
         let script_id = adapter_id.to_string();
