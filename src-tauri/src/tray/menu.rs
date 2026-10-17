@@ -40,7 +40,7 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<TrayIcon<R>, tauri:
             "show" => restore_main_window(app),
             "toggle_monitor" => {
                 let enabled = app.state::<AppRuntimeState>().toggle_monitoring();
-                let _ = app.emit("monitoring-toggled", enabled);
+                crate::commands::settings::apply_monitoring_state(app, enabled);
             }
             "quit" => {
                 let _ = crate::monitoring::etw::EtwSessionManager::stop_session();

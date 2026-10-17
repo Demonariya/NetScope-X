@@ -1,9 +1,27 @@
 use crate::settings::config::AppConfig;
 use crate::settings::persistence::SettingsPersistence;
 use crate::AppRuntimeState;
-use tauri::{command, AppHandle, Manager};
+use tauri::{command, AppHandle, Emitter, Manager, Runtime};
 
-fn settings_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+pub fn apply_monitoring_state<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
+    app.state::<AppRuntimeState>()
+        .set_monitoring_enabled(enabled);
+
+    if enabled {
+        let session_name = format!("NetScopeX-{}", std::process::id());
+        if let Err(error) =
+            crate::monitoring::etw::EtwSessionManager::start_session(&session_name)
+        {
+            eprintln!("NetScope X per-process ETW telemetry is unavailable: {error}");
+        }
+    } else if let Err(error) = crate::monitoring::etw::EtwSessionManager::stop_session() {
+        eprintln!("NetScope X could not stop per-process ETW telemetry: {error}");
+    }
+
+    let _ = app.emit("monitoring-toggled", enabled);
+}
+
+fn settings_file<R: Runtime>(app: &AppHandle<R>) -> Result<std::path::PathBuf, String> {
     let directory = app
         .path()
         .app_config_dir()
@@ -19,6 +37,7 @@ pub fn get_settings(app: AppHandle) -> Result<AppConfig, String> {
     let settings = SettingsPersistence::load_or_default(path);
     app.state::<crate::AppRuntimeState>()
         .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
+    apply_monitoring_state(&app, settings.monitoring.enabled);
     Ok(settings)
 }
 
@@ -29,14 +48,13 @@ pub fn save_settings(app: AppHandle, settings: AppConfig) -> Result<bool, String
         .map_err(|error| format!("Could not save application settings: {error}"))?;
     app.state::<crate::AppRuntimeState>()
         .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
+    apply_monitoring_state(&app, settings.monitoring.enabled);
     Ok(true)
 }
 
 #[command]
 pub fn set_monitoring_enabled(app: AppHandle, enabled: bool) -> bool {
-    app.state::<AppRuntimeState>()
-        .set_monitoring_enabled(enabled);
-    let _ = tauri::Emitter::emit(&app, "monitoring-toggled", enabled);
+    apply_monitoring_state(&app, enabled);
     enabled
 }
 
@@ -75,7 +93,7 @@ pub fn system_tray_action(app: AppHandle, action: String) -> Result<bool, String
         }
         "toggle_monitor" => {
             let enabled = app.state::<AppRuntimeState>().toggle_monitoring();
-            let _ = tauri::Emitter::emit(&app, "monitoring-toggled", enabled);
+            apply_monitoring_state(&app, enabled);
         }
         "quit" => {
             app.exit(0);

@@ -13,9 +13,9 @@ pub struct SocketConnectionRecord {
     pub pid: u32,
     pub process_name: String,
     /// Windows TCP/UDP endpoint tables do not expose per-socket byte counters.
-    /// Keep these at zero rather than presenting invented byte totals.
-    pub bytes_sent: u64,
-    pub bytes_received: u64,
+    /// None means unavailable; it must not be interpreted as measured zero traffic.
+    pub bytes_sent: Option<u64>,
+    pub bytes_received: Option<u64>,
 }
 
 impl SocketConnectionRecord {
@@ -53,8 +53,8 @@ $tcpRows = @(
       state = $state
       pid = $pidValue
       processName = $processName
-      bytesSent = [uint64]0
-      bytesReceived = [uint64]0
+      bytesSent = $null
+      bytesReceived = $null
     }
   }
 )
@@ -73,8 +73,8 @@ $udpRows = @(
       state = 'LISTENING'
       pid = $pidValue
       processName = $processName
-      bytesSent = [uint64]0
-      bytesReceived = [uint64]0
+      bytesSent = $null
+      bytesReceived = $null
     }
   }
 )

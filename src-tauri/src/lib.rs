@@ -70,14 +70,19 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main"
-                    && window
+                if window.label() == "main" {
+                    if window
                         .state::<AppRuntimeState>()
                         .minimize_to_tray_on_close()
-                {
-                    api.prevent_close();
-                    if let Err(error) = window.hide() {
-                        eprintln!("NetScope X could not hide to tray on close: {error}");
+                    {
+                        api.prevent_close();
+                        if let Err(error) = window.hide() {
+                            eprintln!("NetScope X could not hide to tray on close: {error}");
+                        }
+                    } else if let Err(error) =
+                        crate::monitoring::etw::EtwSessionManager::stop_session()
+                    {
+                        eprintln!("NetScope X could not stop ETW before exit: {error}");
                     }
                 }
             }

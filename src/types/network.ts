@@ -69,8 +69,8 @@ export interface SocketConnection {
   state: TcpState;
   pid: number;
   processName: string;
-  bytesSent: number;
-  bytesReceived: number;
+  bytesSent: number | null;
+  bytesReceived: number | null;
 }
 
 export interface ProcessNetworkUsage {
