@@ -88,6 +88,7 @@ export interface ProcessNetworkUsage {
   connectionCount: number;
   status: 'active' | 'idle' | 'terminated';
   isBlocked?: boolean;
+  trafficAvailable?: boolean;
   startTime: number;
   recentSpeedHistory: { time: number; down: number; up: number }[];
   connections: SocketConnection[];

@@ -14,7 +14,7 @@ pub struct ProcessNetworkUsage {
     pub exe_name: String,
     pub full_path: String,
     pub icon: String,
-    /// Measured per-process byte rates derived from the Windows Kernel-Network ETW provider.
+    /// Per-process rates and totals are derived from actual Windows ETW observations.
     pub download_bps: u64,
     pub upload_bps: u64,
     pub session_download_bytes: u64,
@@ -48,15 +48,20 @@ struct ProcessTrafficSample {
     upload_bps: u64,
     history: Vec<SpeedSample>,
 }
+
 static PROCESS_SAMPLES: OnceLock<Mutex<HashMap<u32, ProcessTrafficSample>>> = OnceLock::new();
 
 fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<(), String> {
     let active_pids: HashSet<u32> = processes.iter().map(|process| process.pid).collect();
     EtwSessionManager::retain_active_processes(&active_pids);
     let totals = EtwSessionManager::process_byte_totals();
-    let now_ms = SystemTime::now().duration_since(UNIX_EPOCH)
-        .unwrap_or_default().as_millis() as u64;
-    let mut previous = PROCESS_SAMPLES.get_or_init(|| Mutex::new(HashMap::new())).lock()
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let mut previous = PROCESS_SAMPLES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
         .map_err(|_| "Per-process network sample state is unavailable.".to_string())?;
     previous.retain(|pid, _| active_pids.contains(pid));
     let traffic_available = EtwSessionManager::is_active();
@@ -66,8 +71,14 @@ fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<()
         let sample = previous.entry(process.pid).or_default();
         let elapsed_ms = now_ms.saturating_sub(sample.last_sample_ms);
         if sample.last_sample_ms > 0 && elapsed_ms > 0 {
-            sample.download_bps = download_total.saturating_sub(sample.last_download_total).saturating_mul(1000) / elapsed_ms;
-            sample.upload_bps = upload_total.saturating_sub(sample.last_upload_total).saturating_mul(1000) / elapsed_ms;
+            sample.download_bps = download_total
+                .saturating_sub(sample.last_download_total)
+                .saturating_mul(1000)
+                / elapsed_ms;
+            sample.upload_bps = upload_total
+                .saturating_sub(sample.last_upload_total)
+                .saturating_mul(1000)
+                / elapsed_ms;
         } else {
             sample.download_bps = 0;
             sample.upload_bps = 0;
@@ -75,7 +86,11 @@ fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<()
         sample.last_download_total = download_total;
         sample.last_upload_total = upload_total;
         sample.last_sample_ms = now_ms;
-        sample.history.push(SpeedSample { time: now_ms, down: sample.download_bps, up: sample.upload_bps });
+        sample.history.push(SpeedSample {
+            time: now_ms,
+            down: sample.download_bps,
+            up: sample.upload_bps,
+        });
         if sample.history.len() > 120 {
             let excess = sample.history.len() - 120;
             sample.history.drain(0..excess);
@@ -92,7 +107,8 @@ fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<()
 }
 
 impl ProcessNetworkUsage {
-    /// Enumerates live Windows processes, current endpoints, and measured ETW per-process traffic.
+    /// Enumerates live Windows processes and joins each PID to current TCP/UDP endpoints.
+    /// Per-process traffic byte rates are not fabricated; they remain zero until ETW/WFP is implemented.
     pub fn enumerate_monitored_processes() -> Result<Vec<Self>, String> {
         let script = r#"
 $connectionCounts = @{}
@@ -201,11 +217,15 @@ ConvertTo-Json -InputObject @($rows) -Depth 5 -Compress
         Ok(processes)
     }
 }
-) { $blockedPids[$Matches[1]] = $true }
+) {
+        $blockedPids[$Matches[1]] = $true
+      }
       try {
         $filter = $_ | Get-NetFirewallApplicationFilter -ErrorAction Stop
         $program = [string]$filter.Program
-        if (-not [string]::IsNullOrWhiteSpace($program) -and $program -ne 'Any') { $blockedPrograms[$program.ToLowerInvariant()] = $true }
+        if (-not [string]::IsNullOrWhiteSpace($program) -and $program -ne 'Any') {
+          $blockedPrograms[$program.ToLowerInvariant()] = $true
+        }
       } catch {}
     }
 } catch {}
@@ -244,8 +264,7 @@ $rows = @(
       totalBytes = [uint64]0
       connectionCount = [uint32]$connectionCount
       status = if ($connectionCount -gt 0) { 'active' } else { 'idle' }
-      isBlocked = [bool]($blockedPids.ContainsKey($key) -or (-not [string]::IsNullOrWhiteSpace($path) -and $blockedPrograms.ContainsKey($path.ToLowerInvariant())))
-      trafficAvailable = $false
+      isBlocked = [bool]$blockedPids.ContainsKey($key)
       startTime = $start
       recentSpeedHistory = @()
       connections = @()

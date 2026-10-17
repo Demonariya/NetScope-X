@@ -9,7 +9,7 @@ pub fn run_powershell_elevated(script: &str) -> Result<String, String> {
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     let result_path = std::env::temp_dir().join(format!("netscope-firewall-{}-{nonce}.json", std::process::id()));
     let result_path = result_path.to_string_lossy().to_string();
-    let ps_path = result_path.replace('\\'', "\\'\\'");
+    let ps_path = result_path.replace("'", "''");
     let inner_script = format!(
         "$ErrorActionPreference = 'Stop'; try {{\n{script}\n[System.IO.File]::WriteAllText('{ps_path}', (ConvertTo-Json -Compress -InputObject @{{ success = $true; error = '' }}), [System.Text.UTF8Encoding]::new($false)); exit 0\n}} catch {{ [System.IO.File]::WriteAllText('{ps_path}', (ConvertTo-Json -Compress -InputObject @{{ success = $false; error = [string]$_.Exception.Message }}), [System.Text.UTF8Encoding]::new($false)); exit 1 }}"
     );

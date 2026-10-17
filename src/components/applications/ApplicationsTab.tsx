@@ -95,7 +95,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
   return (
     <div className="space-y-3 p-3 max-w-full pb-16 w-full">
       <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-        <p className="text-[10px] leading-relaxed text-amber-200/90">Processes and sockets are read from Windows. Per-app throughput and byte totals show Unavailable until the ETW/WFP attribution collector is implemented; zeroes are not presented as measured traffic.</p>
+        <p className="text-[10px] leading-relaxed text-amber-200/90">Processes and sockets are read from Windows. Per-app traffic is measured by the Windows ETW provider; if ETW cannot start, rates and byte totals remain Unavailable rather than showing fabricated values.</p>
       </div>
       {/* Header & Controls Strip */}
       <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 shadow-sm space-y-2.5">
@@ -207,7 +207,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
           filteredAndSorted.map(proc => {
             const isExpanded = expandedPids.has(proc.pid);
             const isBlocked = !!proc.isBlocked;
-            const hasPerAppTraffic = proc.downloadBps > 0 || proc.uploadBps > 0 || proc.totalBytes > 0 || proc.sessionDownloadBytes > 0 || proc.sessionUploadBytes > 0;
+            const hasPerAppTraffic = proc.trafficAvailable === true;
             const down = formatSpeed(proc.downloadBps);
             const up = formatSpeed(proc.uploadBps);
             const iconSrc = proc.icon || getProcessIconSvg(proc.exeName);
