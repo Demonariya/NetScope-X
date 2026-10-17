@@ -497,7 +497,7 @@ export default function App() {
             <HistoryTab
               history={history}
               onClearHistory={handleClearHistory}
-              onShowToast={(t, m, type = 'info') => addToast(t, m, type)}
+              onShowToast={(t, m) => addToast(t, m, 'success')}
             />
           )}
 
@@ -512,7 +512,7 @@ export default function App() {
               onSaveSettings={handleSaveSettings}
               onResetSession={handleResetSession}
               onClearHistory={handleClearHistory}
-              onShowToast={(t, m) => addToast(t, m, 'success')}
+              onShowToast={(t, m, type = 'info') => addToast(t, m, type)}
             />
           )}
         </div>
