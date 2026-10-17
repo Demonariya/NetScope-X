@@ -110,8 +110,7 @@ fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<()
         process.upload_bps = sample.upload_bps;
         process.session_download_bytes =
             download_total.saturating_sub(sample.baseline_download_total);
-        process.session_upload_bytes =
-            upload_total.saturating_sub(sample.baseline_upload_total);
+        process.session_upload_bytes = upload_total.saturating_sub(sample.baseline_upload_total);
         process.total_bytes = process
             .session_download_bytes
             .saturating_add(process.session_upload_bytes);
