@@ -59,6 +59,24 @@ jobs:
             lightningcss-win32-x64-msvc-v132@npm:lightningcss-win32-x64-msvc@1.32.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # The follow-up npm install can dedupe/prune Tailwind's exact nested dependency.
+      - name: Ensure Tailwind LightningCSS package is installed
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tailwindNode = Join-Path $PWD 'node_modules/@tailwindcss/node'
+          if (-not (Test-Path -LiteralPath $tailwindNode)) {
+            throw "Tailwind Node package directory is missing: $tailwindNode"
+          }
+
+          npm install --prefix $tailwindNode --no-save --package-lock=false --legacy-peer-deps lightningcss@1.32.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $tailwindLightningCssPackage = Join-Path $tailwindNode 'node_modules/lightningcss/package.json'
+          if (-not (Test-Path -LiteralPath $tailwindLightningCssPackage)) {
+            throw "Could not install Tailwind's LightningCSS package: $tailwindLightningCssPackage"
+          }
+
       # LightningCSS 1.32 is nested under Tailwind; Vite uses 1.33 at the root.
       - name: Place version-matched LightningCSS binaries
         shell: pwsh
