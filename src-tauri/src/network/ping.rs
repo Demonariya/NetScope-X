@@ -20,33 +20,6 @@ pub struct PingProbeResult {
 
 pub struct PingService;
 
-#[cfg(test)]
-mod tests {
-    use super::PingProbeResult;
-
-    #[test]
-    fn ping_result_serializes_using_frontend_camel_case_names() {
-        let result = PingProbeResult {
-            target: "1.1.1.1".to_string(),
-            host: "1.1.1.1".to_string(),
-            latency_ms: 14.5,
-            min_latency_ms: 12.0,
-            max_latency_ms: 18.0,
-            avg_latency_ms: 14.5,
-            jitter_ms: 1.1,
-            packet_loss_percent: 0.0,
-            status: "success".to_string(),
-            last_checked: 123,
-            history: vec![14.5],
-        };
-        let json = serde_json::to_value(result).expect("PingProbeResult should serialize");
-        assert_eq!(json["latencyMs"], 14.5);
-        assert_eq!(json["minLatencyMs"], 12.0);
-        assert_eq!(json["maxLatencyMs"], 18.0);
-        assert!(json.get("min_latency_ms").is_none());
-    }
-}
-
 impl PingService {
     /// Performs real network latency probing.
     /// On Windows, uses IcmpSendEcho when available, falling back to TCP socket handshake.
@@ -102,5 +75,32 @@ impl PingService {
             last_checked: now,
             history: vec![latency * 0.95, latency * 1.05, latency],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PingProbeResult;
+
+    #[test]
+    fn ping_result_serializes_using_frontend_camel_case_names() {
+        let result = PingProbeResult {
+            target: "1.1.1.1".to_string(),
+            host: "1.1.1.1".to_string(),
+            latency_ms: 14.5,
+            min_latency_ms: 12.0,
+            max_latency_ms: 18.0,
+            avg_latency_ms: 14.5,
+            jitter_ms: 1.1,
+            packet_loss_percent: 0.0,
+            status: "success".to_string(),
+            last_checked: 123,
+            history: vec![14.5],
+        };
+        let json = serde_json::to_value(result).expect("PingProbeResult should serialize");
+        assert_eq!(json["latencyMs"], 14.5);
+        assert_eq!(json["minLatencyMs"], 12.0);
+        assert_eq!(json["maxLatencyMs"], 18.0);
+        assert!(json.get("min_latency_ms").is_none());
     }
 }
