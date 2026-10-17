@@ -14,7 +14,7 @@ pub struct ProcessNetworkUsage {
     pub exe_name: String,
     pub full_path: String,
     pub icon: String,
-    /// Per-process rates and totals are derived from actual Windows ETW observations.
+    /// Per-process values are only considered available while the ETW session is active.
     pub download_bps: u64,
     pub upload_bps: u64,
     pub session_download_bytes: u64,
@@ -67,22 +67,27 @@ fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<()
     let traffic_available = EtwSessionManager::is_active();
 
     for process in processes {
-        let (download_total, upload_total) = totals.get(&process.pid).copied().unwrap_or_default();
+        let (download_total, upload_total) =
+            totals.get(&process.pid).copied().unwrap_or_default();
         let sample = previous.entry(process.pid).or_default();
         let elapsed_ms = now_ms.saturating_sub(sample.last_sample_ms);
+
         if sample.last_sample_ms > 0 && elapsed_ms > 0 {
             sample.download_bps = download_total
                 .saturating_sub(sample.last_download_total)
                 .saturating_mul(1000)
-                / elapsed_ms;
+                .checked_div(elapsed_ms)
+                .unwrap_or(0);
             sample.upload_bps = upload_total
                 .saturating_sub(sample.last_upload_total)
                 .saturating_mul(1000)
-                / elapsed_ms;
+                .checked_div(elapsed_ms)
+                .unwrap_or(0);
         } else {
             sample.download_bps = 0;
             sample.upload_bps = 0;
         }
+
         sample.last_download_total = download_total;
         sample.last_upload_total = upload_total;
         sample.last_sample_ms = now_ms;
@@ -95,6 +100,7 @@ fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<()
             let excess = sample.history.len() - 120;
             sample.history.drain(0..excess);
         }
+
         process.download_bps = sample.download_bps;
         process.upload_bps = sample.upload_bps;
         process.session_download_bytes = download_total;
@@ -103,12 +109,13 @@ fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<()
         process.traffic_available = traffic_available;
         process.recent_speed_history.clone_from(&sample.history);
     }
+
     Ok(())
 }
 
 impl ProcessNetworkUsage {
-    /// Enumerates live Windows processes and joins each PID to current TCP/UDP endpoints.
-    /// Per-process traffic byte rates are not fabricated; they remain zero until ETW/WFP is implemented.
+    /// Enumerate live Windows processes, their current TCP/UDP endpoints, firewall state,
+    /// and ETW-attributed byte totals. Per-process values are marked unavailable if ETW fails.
     pub fn enumerate_monitored_processes() -> Result<Vec<Self>, String> {
         let script = r#"
 $connectionCounts = @{}
@@ -119,6 +126,7 @@ try {
       $connectionCounts[[string]$_.Name] = [int]$_.Count
     }
 } catch {}
+
 try {
   Get-NetUDPEndpoint -ErrorAction SilentlyContinue |
     Group-Object -Property OwningProcess |
@@ -136,7 +144,12 @@ $blockedPids = @{}
 $blockedPrograms = @{}
 try {
   Get-NetFirewallRule -ErrorAction SilentlyContinue |
-    Where-Object { $_.DisplayName -like 'NetScopeX-Blocked-*-out' -and $_.Enabled -eq 'True' } |
+    Where-Object {
+      $_.Enabled -eq 'True' -and
+      $_.Direction -eq 'Outbound' -and
+      $_.Action -eq 'Block' -and
+      $_.DisplayName -like 'NetScopeX-Blocked-*-out'
+    } |
     ForEach-Object {
       if ($_.DisplayName -match '^NetScopeX-Blocked-(\d+)-out$') {
         $blockedPids[$Matches[1]] = $true
@@ -171,6 +184,11 @@ $rows = @(
       $start = ([DateTimeOffset]$startTime).ToUnixTimeMilliseconds()
     } catch {}
 
+    $isBlocked = $blockedPids.ContainsKey($key)
+    if (-not $isBlocked -and -not [string]::IsNullOrWhiteSpace($path)) {
+      $isBlocked = $blockedPrograms.ContainsKey($path.ToLowerInvariant())
+    }
+
     [pscustomobject]@{
       pid = [uint32]$process.Id
       name = "$($process.ProcessName).exe"
@@ -185,7 +203,7 @@ $rows = @(
       totalBytes = [uint64]0
       connectionCount = [uint32]$connectionCount
       status = if ($connectionCount -gt 0) { 'active' } else { 'idle' }
-      isBlocked = [bool]($blockedPids.ContainsKey($key) -or (-not [string]::IsNullOrWhiteSpace($path) -and $blockedPrograms.ContainsKey($path.ToLowerInvariant())))
+      isBlocked = [bool]$isBlocked
       trafficAvailable = $false
       startTime = $start
       recentSpeedHistory = @()
@@ -225,6 +243,7 @@ ConvertTo-Json -InputObject @($rows) -Depth 5 -Compress
                         .cmp(&right.friendly_name.to_lowercase())
                 })
         });
+
         Ok(processes)
     }
 }
