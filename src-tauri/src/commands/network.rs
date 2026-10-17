@@ -15,6 +15,6 @@ pub async fn ping_target(target: Option<String>) -> PingProbeResult {
 }
 
 #[command]
-pub fn get_active_connections() -> Vec<SocketConnectionRecord> {
+pub fn get_active_connections() -> Result<Vec<SocketConnectionRecord>, String> {
     SocketConnectionRecord::get_active_connections()
 }

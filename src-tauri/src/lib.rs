@@ -9,7 +9,7 @@ pub mod windows_utils;
 
 use commands::*;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 pub struct AppRuntimeState {
     monitoring_enabled: AtomicBool,
