@@ -10,6 +10,7 @@ pub struct ProcessNetworkUsage {
     pub exe_name: String,
     pub full_path: String,
     pub icon: String,
+    /// Per-process network byte attribution is not yet available; don't fabricate it.
     pub download_bps: u64,
     pub upload_bps: u64,
     pub session_download_bytes: u64,
@@ -32,54 +33,83 @@ pub struct SpeedSample {
 }
 
 impl ProcessNetworkUsage {
-    /// Enumerates active Windows processes using CreateToolhelp32Snapshot / EnumProcesses
-    /// and associates them with network bandwidth counters.
-    pub fn enumerate_monitored_processes() -> Vec<Self> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        vec![
-            ProcessNetworkUsage {
-                pid: 14280,
-                name: "chrome.exe".to_string(),
-                friendly_name: "Google Chrome".to_string(),
-                exe_name: "chrome.exe".to_string(),
-                full_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe".to_string(),
-                icon: "".to_string(),
-                download_bps: 450_000,
-                upload_bps: 42_000,
-                session_download_bytes: 640 * 1024 * 1024,
-                session_upload_bytes: 78 * 1024 * 1024,
-                total_bytes: 718 * 1024 * 1024,
-                connection_count: 16,
-                status: "active".to_string(),
-                is_blocked: false,
-                start_time: now - 3600 * 1000 * 3,
-                recent_speed_history: vec![],
-                connections: vec![],
-            },
-            ProcessNetworkUsage {
-                pid: 11048,
-                name: "Discord.exe".to_string(),
-                friendly_name: "Discord".to_string(),
-                exe_name: "Discord.exe".to_string(),
-                full_path: "C:\\Users\\User\\AppData\\Local\\Discord\\app-1.0.9168\\Discord.exe"
-                    .to_string(),
-                icon: "".to_string(),
-                download_bps: 125_000,
-                upload_bps: 85_000,
-                session_download_bytes: 320 * 1024 * 1024,
-                session_upload_bytes: 94 * 1024 * 1024,
-                total_bytes: 414 * 1024 * 1024,
-                connection_count: 8,
-                status: "active".to_string(),
-                is_blocked: false,
-                start_time: now - 3600 * 1000 * 4,
-                recent_speed_history: vec![],
-                connections: vec![],
-            },
-        ]
+    /// Returns the actual running Windows processes and their observed TCP/UDP endpoint counts.
+    /// Byte-rate fields stay at zero until a real ETW/WFP attribution collector is available.
+    pub fn enumerate_monitored_processes() -> Result<Vec<Self>, String> {
+        let script = r#"
+$connectionCounts = @{}
+try {
+  Get-NetTCPConnection -ErrorAction SilentlyContinue | Group-Object -Property OwningProcess | ForEach-Object {
+    $connectionCounts[[string]$_.Name] = [int]$_.Count
+  }
+} catch {}
+try {
+  Get-NetUDPEndpoint -ErrorAction SilentlyContinue | Group-Object -Property OwningProcess | ForEach-Object {
+    $key = [string]$_.Name
+    $current = 0
+    if ($connectionCounts.ContainsKey($key)) { $current = [int]$connectionCounts[$key] }
+    $connectionCounts[$key] = $current + [int]$_.Count
+  }
+} catch {}
+$blockedPaths = @{}
+try {
+  Get-NetFirewallRule -ErrorAction Stop | Where-Object { $_.DisplayName -like 'NetScopeX-Blocked-*-out' } | ForEach-Object {
+    $filter = $_ | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue
+    if ($filter.Program -and $filter.Program -ne 'Any') {
+      $blockedPaths[[string]$filter.Program.ToLowerInvariant()] = $true
+    }
+  }
+} catch {}
+$rows = @(
+  Get-Process -ErrorAction Stop | ForEach-Object {
+    $process = $_
+    $path = ''
+    try { $path = [string]$process.Path } catch {}
+    $key = [string]$process.Id
+    $connectionCount = 0
+    if ($connectionCounts.ContainsKey($key)) { $connectionCount = [int]$connectionCounts[$key] }
+    $start = [long]0
+    try { $start = [DateTimeOffset]$process.StartTime.ToUniversalTime() | ForEach-Object { $_.ToUnixTimeMilliseconds() } } catch {}
+    $isBlocked = $false
+    if ($path) { $isBlocked = $blockedPaths.ContainsKey($path.ToLowerInvariant()) }
+    [pscustomobject]@{
+      pid = [uint32]$process.Id
+      name = "$($process.ProcessName).exe"
+      friendlyName = [string]$process.ProcessName
+      exeName = "$($process.ProcessName).exe"
+      fullPath = $path
+      icon = ''
+      downloadBps = [uint64]0
+      uploadBps = [uint64]0
+      sessionDownloadBytes = [uint64]0
+      sessionUploadBytes = [uint64]0
+      totalBytes = [uint64]0
+      connectionCount = [uint32]$connectionCount
+      status = if ($connectionCount -gt 0) { 'active' } else { 'idle' }
+      isBlocked = $isBlocked
+      startTime = $start
+      recentSpeedHistory = @()
+    }
+  }
+)
+ConvertTo-Json -InputObject @($rows) -Depth 5 -Compress
+"#;
+        let json = crate::windows_utils::run_powershell(script)?;
+        let mut processes = serde_json::from_str::<Vec<Self>>(&json)
+            .map_err(|error| format!("Invalid Windows process JSON: {error}"))?;
+        let connections = SocketConnectionRecord::get_active_connections()?;
+        for process in &mut processes {
+            process.connections = connections
+                .iter()
+                .filter(|connection| connection.pid == process.pid)
+                .cloned()
+                .collect();
+            process.connection_count = process.connections.len().min(u32::MAX as usize) as u32;
+        }
+        processes.sort_by(|left, right| {
+            right.connection_count.cmp(&left.connection_count)
+                .then_with(|| left.friendly_name.to_lowercase().cmp(&right.friendly_name.to_lowercase()))
+        });
+        Ok(processes)
     }
 }

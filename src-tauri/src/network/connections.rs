@@ -12,53 +12,77 @@ pub struct SocketConnectionRecord {
     pub state: String,
     pub pid: u32,
     pub process_name: String,
+    /// Windows TCP/UDP endpoint tables do not expose per-socket byte counters.
+    /// Keep these at zero rather than presenting invented byte totals.
     pub bytes_sent: u64,
     pub bytes_received: u64,
 }
 
 impl SocketConnectionRecord {
-    /// Discovers active TCP and UDP sockets using GetExtendedTcpTable and GetExtendedUdpTable.
-    pub fn get_active_connections() -> Vec<Self> {
-        vec![
-            SocketConnectionRecord {
-                id: "c1".to_string(),
-                protocol: "TCP".to_string(),
-                local_address: "192.168.1.145".to_string(),
-                local_port: 54120,
-                remote_address: "142.250.180.206".to_string(),
-                remote_port: 443,
-                state: "ESTABLISHED".to_string(),
-                pid: 14280,
-                process_name: "chrome.exe".to_string(),
-                bytes_sent: 341_200,
-                bytes_received: 4_210_900,
-            },
-            SocketConnectionRecord {
-                id: "d1".to_string(),
-                protocol: "TCP".to_string(),
-                local_address: "192.168.1.145".to_string(),
-                local_port: 51200,
-                remote_address: "162.159.130.234".to_string(),
-                remote_port: 443,
-                state: "ESTABLISHED".to_string(),
-                pid: 11048,
-                process_name: "Discord.exe".to_string(),
-                bytes_sent: 89_040,
-                bytes_received: 780_200,
-            },
-            SocketConnectionRecord {
-                id: "st1".to_string(),
-                protocol: "TCP".to_string(),
-                local_address: "192.168.1.145".to_string(),
-                local_port: 56210,
-                remote_address: "155.133.253.50".to_string(),
-                remote_port: 27017,
-                state: "ESTABLISHED".to_string(),
-                pid: 6140,
-                process_name: "steam.exe".to_string(),
-                bytes_sent: 120_500,
-                bytes_received: 3_410_200,
-            },
-        ]
+    /// Reads currently active TCP connections and bound UDP endpoints from Windows.
+    pub fn get_active_connections() -> Result<Vec<Self>, String> {
+        let script = r#"
+$processNames = @{}
+Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
+  $processNames[[string]$_.Id] = "$($_.ProcessName).exe"
+}
+$tcpRows = @(
+  Get-NetTCPConnection -ErrorAction SilentlyContinue | ForEach-Object {
+    $pidValue = [int]$_.OwningProcess
+    $key = [string]$pidValue
+    $processName = if ($processNames.ContainsKey($key)) { $processNames[$key] } else { "PID $pidValue" }
+    $state = switch ([string]$_.State) {
+      'Established' { 'ESTABLISHED' }
+      'Listen' { 'LISTENING' }
+      'CloseWait' { 'CLOSE_WAIT' }
+      'TimeWait' { 'TIME_WAIT' }
+      'SynSent' { 'SYN_SENT' }
+      'SynReceived' { 'SYN_RCVD' }
+      'FinWait1' { 'FIN_WAIT_1' }
+      'FinWait2' { 'FIN_WAIT_2' }
+      'LastAck' { 'LAST_ACK' }
+      default { ([string]$_.State).ToUpperInvariant() }
+    }
+    [pscustomobject]@{
+      id = "tcp-$pidValue-$($_.LocalAddress)-$($_.LocalPort)-$($_.RemoteAddress)-$($_.RemotePort)"
+      protocol = 'TCP'
+      localAddress = [string]$_.LocalAddress
+      localPort = [uint16]$_.LocalPort
+      remoteAddress = [string]$_.RemoteAddress
+      remotePort = [uint16]$_.RemotePort
+      state = $state
+      pid = $pidValue
+      processName = $processName
+      bytesSent = [uint64]0
+      bytesReceived = [uint64]0
+    }
+  }
+)
+$udpRows = @(
+  Get-NetUDPEndpoint -ErrorAction SilentlyContinue | ForEach-Object {
+    $pidValue = [int]$_.OwningProcess
+    $key = [string]$pidValue
+    $processName = if ($processNames.ContainsKey($key)) { $processNames[$key] } else { "PID $pidValue" }
+    [pscustomobject]@{
+      id = "udp-$pidValue-$($_.LocalAddress)-$($_.LocalPort)"
+      protocol = 'UDP'
+      localAddress = [string]$_.LocalAddress
+      localPort = [uint16]$_.LocalPort
+      remoteAddress = ''
+      remotePort = [uint16]0
+      state = 'LISTENING'
+      pid = $pidValue
+      processName = $processName
+      bytesSent = [uint64]0
+      bytesReceived = [uint64]0
+    }
+  }
+)
+$rows = @($tcpRows) + @($udpRows)
+ConvertTo-Json -InputObject @($rows) -Depth 4 -Compress
+"#;
+        let json = crate::windows_utils::run_powershell(script)?;
+        serde_json::from_str::<Vec<Self>>(&json)
+            .map_err(|error| format!("Invalid Windows connection JSON: {error}"))
     }
 }
