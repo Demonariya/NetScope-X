@@ -46,11 +46,51 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Run verification checks
+      # npm's current optional-dependency lockfile can omit platform packages.
+      # Install the exact native Windows packages required by locked tool versions.
+      - name: Install Windows native frontend bindings
+        shell: pwsh
         run: |
-          npm run lint
-          npm test
-          cargo test --manifest-path src-tauri/Cargo.toml
+          npm install --no-save --package-lock=false --legacy-peer-deps `
+            @typescript/typescript-win32-x64@7.0.2 `
+            @rolldown/binding-win32-x64-msvc@1.2.14 `
+            @tailwindcss/oxide-win32-x64-msvc@4.3.3 `
+            lightningcss-win32-x64-msvc@1.33.0 `
+            lightningcss-win32-x64-msvc-v132@npm:lightningcss-win32-x64-msvc@1.32.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # LightningCSS 1.32 is nested under Tailwind; Vite uses 1.33 at the root.
+      - name: Place version-matched LightningCSS binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $binding133 = Join-Path $PWD 'node_modules/lightningcss-win32-x64-msvc/lightningcss.win32-x64-msvc.node'
+          $binding132 = Join-Path $PWD 'node_modules/lightningcss-win32-x64-msvc-v132/lightningcss.win32-x64-msvc.node'
+          $viteLightningCss = Join-Path $PWD 'node_modules/lightningcss/lightningcss.win32-x64-msvc.node'
+          $tailwindLightningCss = Join-Path $PWD 'node_modules/@tailwindcss/node/node_modules/lightningcss/lightningcss.win32-x64-msvc.node'
+
+          foreach ($file in @($binding133, $binding132)) {
+            if (-not (Test-Path -LiteralPath $file)) {
+              throw "Required LightningCSS native binding is missing: $file"
+            }
+          }
+          foreach ($directory in @((Split-Path -Parent $viteLightningCss), (Split-Path -Parent $tailwindLightningCss))) {
+            if (-not (Test-Path -LiteralPath $directory)) {
+              throw "Required LightningCSS package directory is missing: $directory"
+            }
+          }
+
+          Copy-Item -LiteralPath $binding133 -Destination $viteLightningCss -Force
+          Copy-Item -LiteralPath $binding132 -Destination $tailwindLightningCss -Force
+
+      - name: Run TypeScript verification
+        run: npm run lint
+
+      - name: Run frontend tests
+        run: npm test
+
+      - name: Run Rust unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build frontend distribution
         run: npm run build
