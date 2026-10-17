@@ -22,8 +22,14 @@ pub fn reset_process_stats(pid: Option<u32>) -> Result<bool, String> {
 /// Add or remove Windows Firewall rules for the real executable associated with a live PID.
 /// Windows requires an elevated process for firewall rule changes; failures are returned to the UI.
 #[command]
-pub fn toggle_process_block(exe_name: String, block: bool, pid: Option<u32>) -> Result<bool, String> {
-    let process_id = pid.ok_or_else(|| "A live process ID is required to add or remove a firewall rule.".to_string())?;
+pub fn toggle_process_block(
+    exe_name: String,
+    block: bool,
+    pid: Option<u32>,
+) -> Result<bool, String> {
+    let process_id = pid.ok_or_else(|| {
+        "A live process ID is required to add or remove a firewall rule.".to_string()
+    })?;
     if process_id == 0 {
         return Err("PID 0 cannot be blocked by application path.".to_string());
     }
@@ -31,7 +37,8 @@ pub fn toggle_process_block(exe_name: String, block: bool, pid: Option<u32>) -> 
         return Err("The process executable name is missing.".to_string());
     }
 
-    let script = format!(r#"
+    let script = format!(
+        r#"
 $targetPid = {process_id}
 $ruleOut = "NetScopeX-Blocked-$targetPid-out"
 $ruleIn = "NetScopeX-Blocked-$targetPid-in"
@@ -58,10 +65,15 @@ try {{
   Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
   throw
 }}
-"#, block_value=if block { "$true" } else { "$false" });
+"#,
+        block_value = if block { "$true" } else { "$false" }
+    );
     let output = run_powershell(&script).map_err(|error| {
-        if error.to_lowercase().contains("access is denied") || error.to_lowercase().contains("access denied") {
-            "Windows Firewall access was denied. Close NetScope X and relaunch it with Run as administrator, then retry.".to_string()
+        if error.to_lowercase().contains("access is denied")
+            || error.to_lowercase().contains("access denied")
+        {
+            "Windows Firewall access was denied. Close NetScope X and relaunch it with Run as administrator, then retry."
+                .to_string()
         } else {
             format!("Windows Firewall operation failed: {error}")
         }

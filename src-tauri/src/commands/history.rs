@@ -3,7 +3,9 @@ use crate::storage::history::{HistoryStorage, TrafficHistoryEntry};
 use tauri::{command, AppHandle, Manager};
 
 fn history_database_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let directory = app.path().app_data_dir()
+    let directory = app
+        .path()
+        .app_data_dir()
         .map_err(|error| format!("Cannot resolve application data directory: {error}"))?;
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("Cannot create application data directory: {error}"))?;
@@ -11,7 +13,10 @@ fn history_database_path(app: &AppHandle) -> Result<std::path::PathBuf, String> 
 }
 
 #[command]
-pub fn get_traffic_history(app: AppHandle, range: Option<String>) -> Result<Vec<TrafficHistoryEntry>, String> {
+pub fn get_traffic_history(
+    app: AppHandle,
+    range: Option<String>,
+) -> Result<Vec<TrafficHistoryEntry>, String> {
     let database = Database::open(history_database_path(&app)?)
         .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
     HistoryStorage::get_history(database.connection(), range.as_deref().unwrap_or("today"))

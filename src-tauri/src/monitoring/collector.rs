@@ -50,7 +50,9 @@ static TELEMETRY: OnceLock<Mutex<TelemetryState>> = OnceLock::new();
 pub struct MonitoringCollector;
 
 impl MonitoringCollector {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// Read OS counters and calculate rates from deltas between real samples.
     /// All rates start at zero until a second sample establishes a delta.
@@ -64,7 +66,10 @@ impl MonitoringCollector {
             .get_or_init(|| Mutex::new(TelemetryState::default()))
             .lock()
             .map_err(|_| "Network telemetry state is unavailable.".to_string())?;
-        let sample = state.adapters.entry(counters.adapter_id.clone()).or_default();
+        let sample = state
+            .adapters
+            .entry(counters.adapter_id.clone())
+            .or_default();
 
         if sample.day_key != date_str {
             sample.day_key = date_str.clone();
@@ -79,20 +84,26 @@ impl MonitoringCollector {
 
         let mut delta_received = 0_u64;
         let mut delta_sent = 0_u64;
-        if let (Some(previous_received), Some(previous_sent), Some(previous_time)) =
-            (sample.last_received, sample.last_sent, sample.last_timestamp_ms)
-        {
+        if let (Some(previous_received), Some(previous_sent), Some(previous_time)) = (
+            sample.last_received,
+            sample.last_sent,
+            sample.last_timestamp_ms,
+        ) {
             let elapsed_ms = counters.timestamp_ms.saturating_sub(previous_time);
             if elapsed_ms > 0 {
                 delta_received = counters.bytes_received.saturating_sub(previous_received);
                 delta_sent = counters.bytes_sent.saturating_sub(previous_sent);
                 sample.download_bps = delta_received.saturating_mul(1000) / elapsed_ms;
                 sample.upload_bps = delta_sent.saturating_mul(1000) / elapsed_ms;
-                sample.session_download_bytes = sample.session_download_bytes.saturating_add(delta_received);
-                sample.session_upload_bytes = sample.session_upload_bytes.saturating_add(delta_sent);
-                sample.daily_download_bytes = sample.daily_download_bytes.saturating_add(delta_received);
+                sample.session_download_bytes =
+                    sample.session_download_bytes.saturating_add(delta_received);
+                sample.session_upload_bytes =
+                    sample.session_upload_bytes.saturating_add(delta_sent);
+                sample.daily_download_bytes =
+                    sample.daily_download_bytes.saturating_add(delta_received);
                 sample.daily_upload_bytes = sample.daily_upload_bytes.saturating_add(delta_sent);
-                sample.hourly_download_bytes = sample.hourly_download_bytes.saturating_add(delta_received);
+                sample.hourly_download_bytes =
+                    sample.hourly_download_bytes.saturating_add(delta_received);
                 sample.hourly_upload_bytes = sample.hourly_upload_bytes.saturating_add(delta_sent);
             }
         }
@@ -106,7 +117,9 @@ impl MonitoringCollector {
             upload_bps: sample.upload_bps,
             session_download_bytes: sample.session_download_bytes,
             session_upload_bytes: sample.session_upload_bytes,
-            total_session_bytes: sample.session_download_bytes.saturating_add(sample.session_upload_bytes),
+            total_session_bytes: sample
+                .session_download_bytes
+                .saturating_add(sample.session_upload_bytes),
             daily_download_bytes: sample.daily_download_bytes,
             daily_upload_bytes: sample.daily_upload_bytes,
             hourly_download_bytes: sample.hourly_download_bytes,

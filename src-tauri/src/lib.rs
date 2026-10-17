@@ -17,7 +17,9 @@ pub struct AppRuntimeState {
 
 impl Default for AppRuntimeState {
     fn default() -> Self {
-        Self { monitoring_enabled: AtomicBool::new(true) }
+        Self {
+            monitoring_enabled: AtomicBool::new(true),
+        }
     }
 }
 

@@ -17,11 +17,14 @@ impl InterfaceCounters {
     /// Read cumulative counters from Get-NetAdapterStatistics on Windows.
     /// The interface ID must be "auto" or a numeric Windows interface index.
     pub fn read_counters(adapter_id: &str) -> Result<Self, String> {
-        if adapter_id != "auto" && !adapter_id.chars().all(|value| value.is_ascii_digit()) {
+        if adapter_id != "auto"
+            && !adapter_id.chars().all(|value| value.is_ascii_digit())
+        {
             return Err("Invalid network interface ID.".to_string());
         }
         let script_id = adapter_id.to_string();
-        let script = format!(r#"
+        let script = format!(
+            r#"
 $requestedId = '{script_id}'
 if ($requestedId -eq 'auto') {{
   $config = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
@@ -43,7 +46,8 @@ $stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction Stop
   errorsOut = [uint32]$stats.OutboundPacketErrors
   timestampMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 }} | ConvertTo-Json -Compress
-"#);
+"#
+        );
         let json = crate::windows_utils::run_powershell(&script)?;
         serde_json::from_str::<Self>(&json)
             .map_err(|error| format!("Invalid interface counters JSON: {error}"))

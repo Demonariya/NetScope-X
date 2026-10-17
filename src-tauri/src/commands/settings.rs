@@ -4,7 +4,9 @@ use crate::AppRuntimeState;
 use tauri::{command, AppHandle, Manager};
 
 fn settings_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let directory = app.path().app_config_dir()
+    let directory = app
+        .path()
+        .app_config_dir()
         .map_err(|error| format!("Cannot resolve application settings directory: {error}"))?;
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("Cannot create application settings directory: {error}"))?;
@@ -27,7 +29,8 @@ pub fn save_settings(app: AppHandle, settings: AppConfig) -> Result<bool, String
 
 #[command]
 pub fn set_monitoring_enabled(app: AppHandle, enabled: bool) -> bool {
-    app.state::<AppRuntimeState>().set_monitoring_enabled(enabled);
+    app.state::<AppRuntimeState>()
+        .set_monitoring_enabled(enabled);
     let _ = tauri::Emitter::emit(&app, "monitoring-toggled", enabled);
     enabled
 }
@@ -36,21 +39,34 @@ pub fn set_monitoring_enabled(app: AppHandle, enabled: bool) -> bool {
 pub fn system_tray_action(app: AppHandle, action: String) -> Result<bool, String> {
     match action.as_str() {
         "minimize" => {
-            let window = app.get_webview_window("main")
+            let window = app
+                .get_webview_window("main")
                 .ok_or_else(|| "Main application window was not found.".to_string())?;
-            window.minimize().map_err(|error| format!("Could not minimize NetScope X: {error}"))?;
+            window
+                .minimize()
+                .map_err(|error| format!("Could not minimize NetScope X: {error}"))?;
         }
         "hide" => {
-            let window = app.get_webview_window("main")
+            let window = app
+                .get_webview_window("main")
                 .ok_or_else(|| "Main application window was not found.".to_string())?;
-            window.hide().map_err(|error| format!("Could not hide NetScope X to the tray: {error}"))?;
+            window
+                .hide()
+                .map_err(|error| format!("Could not hide NetScope X to the tray: {error}"))?;
         }
         "restore" | "show" => {
-            let window = app.get_webview_window("main")
+            let window = app
+                .get_webview_window("main")
                 .ok_or_else(|| "Main application window was not found.".to_string())?;
-            window.show().map_err(|error| format!("Could not show NetScope X: {error}"))?;
-            window.unminimize().map_err(|error| format!("Could not restore NetScope X: {error}"))?;
-            window.set_focus().map_err(|error| format!("Could not focus NetScope X: {error}"))?;
+            window
+                .show()
+                .map_err(|error| format!("Could not show NetScope X: {error}"))?;
+            window
+                .unminimize()
+                .map_err(|error| format!("Could not restore NetScope X: {error}"))?;
+            window
+                .set_focus()
+                .map_err(|error| format!("Could not focus NetScope X: {error}"))?;
         }
         "toggle_monitor" => {
             let enabled = app.state::<AppRuntimeState>().toggle_monitoring();

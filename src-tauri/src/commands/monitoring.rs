@@ -4,7 +4,9 @@ use crate::storage::history::{HistoryStorage, TrafficHistoryEntry};
 use tauri::{command, AppHandle, Manager};
 
 fn history_database_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let directory = app.path().app_data_dir()
+    let directory = app
+        .path()
+        .app_data_dir()
         .map_err(|error| format!("Cannot resolve application data directory: {error}"))?;
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("Cannot create application data directory: {error}"))?;
@@ -28,7 +30,10 @@ fn persist_hour_sample(app: &AppHandle, stats: &LiveNetworkStats) -> Result<(), 
 }
 
 #[command]
-pub fn get_live_network_stats(app: AppHandle, adapter_id: Option<String>) -> Result<LiveNetworkStats, String> {
+pub fn get_live_network_stats(
+    app: AppHandle,
+    adapter_id: Option<String>,
+) -> Result<LiveNetworkStats, String> {
     let collector = MonitoringCollector::new();
     let stats = collector.get_latest_stats(adapter_id.as_deref().unwrap_or("auto"))?;
     if let Err(error) = persist_hour_sample(&app, &stats) {

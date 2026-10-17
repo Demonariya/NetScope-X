@@ -2,11 +2,22 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ConnectionType { Wifi, Ethernet, UsbTether, Cellular, Virtual, Loopback }
+pub enum ConnectionType {
+    Wifi,
+    Ethernet,
+    UsbTether,
+    Cellular,
+    Virtual,
+    Loopback,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AdapterStatus { Connected, Disconnected, Connecting }
+pub enum AdapterStatus {
+    Connected,
+    Disconnected,
+    Connecting,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,9 +91,10 @@ $rows = @(
 )
 ConvertTo-Json -InputObject @($rows) -Depth 5 -Compress
 "#;
-            match crate::windows_utils::run_powershell(script)
-                .and_then(|json| serde_json::from_str::<Vec<Self>>(&json).map_err(|error| format!("Invalid adapter JSON: {error}")))
-            {
+            match crate::windows_utils::run_powershell(script).and_then(|json| {
+                serde_json::from_str::<Vec<Self>>(&json)
+                    .map_err(|error| format!("Invalid adapter JSON: {error}"))
+            }) {
                 Ok(adapters) => adapters,
                 Err(error) => {
                     eprintln!("NetScope X adapter discovery failed: {error}");
