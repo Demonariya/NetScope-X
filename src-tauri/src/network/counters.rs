@@ -45,6 +45,7 @@ $stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction Stop
 }} | ConvertTo-Json -Compress
 "#);
         let json = crate::windows_utils::run_powershell(&script)?;
-        serde_json::from_str::<Self>(&json).map_err(|error| format!("Invalid interface counters JSON: {error}"))
+        serde_json::from_str::<Self>(&json)
+            .map_err(|error| format!("Invalid interface counters JSON: {error}"))
     }
 }

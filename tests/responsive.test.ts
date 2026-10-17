@@ -149,19 +149,14 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     expect(conf.app.windows[0].resizable).toBe(false);
   });
 
-  it('guarantees api service provides resilient defaults without unhandled rejections', async () => {
+  it('does not fabricate system telemetry when no backend is available', async () => {
     const { api } = await import('../src/services/api');
-    const adapters = await api.getAdapters();
-    expect(Array.isArray(adapters)).toBe(true);
-    expect(adapters.length).toBeGreaterThan(0);
-    expect(adapters[0].localIPv4).toBeDefined();
 
-    const stats = await api.getLiveStats();
-    expect(stats.timestamp).toBeGreaterThan(0);
-    expect(stats.downloadBps).toBeDefined();
-
-    const ping = await api.getPing('1.1.1.1');
-    expect(ping.target).toBe('1.1.1.1');
-    expect(ping.latencyMs).toBeGreaterThan(0);
+    await expect(api.getAdapters()).rejects.toThrow();
+    await expect(api.getLiveStats()).rejects.toThrow();
+    await expect(api.getProcesses()).rejects.toThrow();
+    await expect(api.getConnections()).rejects.toThrow();
+    await expect(api.getHistory('today')).rejects.toThrow();
+    await expect(api.getPing('1.1.1.1')).rejects.toThrow();
   });
 });

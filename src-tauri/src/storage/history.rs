@@ -23,11 +23,13 @@ impl HistoryStorage {
             "7d" => today - chrono::Duration::days(7),
             "30d" => today - chrono::Duration::days(30),
             _ => chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("valid epoch date"),
-        }.format("%Y-%m-%d").to_string();
+        }
+        .format("%Y-%m-%d")
+        .to_string();
 
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, date_str, hour_str, download_bytes, upload_bytes, top_app
-             FROM hourly_traffic WHERE date_str >= ?1 ORDER BY timestamp ASC"
+             FROM hourly_traffic WHERE date_str >= ?1 ORDER BY timestamp ASC",
         )?;
         let rows = stmt.query_map([earliest], |row| {
             Ok(TrafficHistoryEntry {

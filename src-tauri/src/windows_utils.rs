@@ -11,7 +11,13 @@ pub fn run_powershell(script: &str) -> Result<String, String> {
     );
 
     let output = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"])
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+        ])
         .arg(wrapped)
         .creation_flags(CREATE_NO_WINDOW)
         .output()
@@ -22,7 +28,11 @@ pub fn run_powershell(script: &str) -> Result<String, String> {
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Err(if !stderr.is_empty() { stderr } else if !stdout.is_empty() { stdout } else {
+        Err(if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
             format!("PowerShell exited with status {}", output.status)
         })
     }

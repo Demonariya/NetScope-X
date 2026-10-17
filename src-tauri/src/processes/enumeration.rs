@@ -1,4 +1,5 @@
 use crate::network::connections::SocketConnectionRecord;
+use crate::network::connections::SocketConnectionRecord;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,14 +52,75 @@ try {
     $connectionCounts[$key] = $current + [int]$_.Count
   }
 } catch {}
-$blockedPaths = @{}
+$blockedPids = @{}
 try {
-  Get-NetFirewallRule -ErrorAction Stop | Where-Object { $_.DisplayName -like 'NetScopeX-Blocked-*-out' } | ForEach-Object {
-    $filter = $_ | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue
-    if ($filter.Program -and $filter.Program -ne 'Any') {
-      $blockedPaths[[string]$filter.Program.ToLowerInvariant()] = $true
+  Get-NetFirewallRule -ErrorAction Stop |
+    Where-Object { $_.DisplayName -like 'NetScopeX-Blocked-*-out' -and $_.Enabled -eq 'True' } |
+    ForEach-Object {
+      if ($_.DisplayName -match '^NetScopeX-Blocked-(\d+)-out
+$rows = @(
+  Get-Process -ErrorAction Stop | ForEach-Object {
+    $process = $_
+    $path = ''
+    try { $path = [string]$process.Path } catch {}
+    $key = [string]$process.Id
+    $connectionCount = 0
+    if ($connectionCounts.ContainsKey($key)) { $connectionCount = [int]$connectionCounts[$key] }
+    $start = [long]0
+    try {
+      $startTime = $process.StartTime.ToUniversalTime()
+      $start = ([DateTimeOffset]$startTime).ToUnixTimeMilliseconds()
+    } catch {}
+    $isBlocked = $blockedPids.ContainsKey($key)
+    [pscustomobject]@{
+      pid = [uint32]$process.Id
+      name = "$($process.ProcessName).exe"
+      friendlyName = [string]$process.ProcessName
+      exeName = "$($process.ProcessName).exe"
+      fullPath = $path
+      icon = ''
+      downloadBps = [uint64]0
+      uploadBps = [uint64]0
+      sessionDownloadBytes = [uint64]0
+      sessionUploadBytes = [uint64]0
+      totalBytes = [uint64]0
+      connectionCount = [uint32]$connectionCount
+      status = if ($connectionCount -gt 0) { 'active' } else { 'idle' }
+      isBlocked = $isBlocked
+      startTime = $start
+      recentSpeedHistory = @()
     }
   }
+)
+ConvertTo-Json -InputObject @($rows) -Depth 5 -Compress
+"#;
+        let json = crate::windows_utils::run_powershell(script)?;
+        let mut processes = serde_json::from_str::<Vec<Self>>(&json)
+            .map_err(|error| format!("Invalid Windows process JSON: {error}"))?;
+        let connections = SocketConnectionRecord::get_active_connections()?;
+        for process in &mut processes {
+            process.connections = connections
+                .iter()
+                .filter(|connection| connection.pid == process.pid)
+                .cloned()
+                .collect();
+            process.connection_count = process.connections.len().min(u32::MAX as usize) as u32;
+        }
+        processes.sort_by(|left, right| {
+            right
+                .connection_count
+                .cmp(&left.connection_count)
+                .then_with(|| {
+                    left.friendly_name
+                        .to_lowercase()
+                        .cmp(&right.friendly_name.to_lowercase())
+                })
+        });
+        Ok(processes)
+    }
+}
+) { $blockedPids[$Matches[1]] = $true }
+    }
 } catch {}
 $rows = @(
   Get-Process -ErrorAction Stop | ForEach-Object {
