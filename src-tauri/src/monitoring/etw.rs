@@ -67,18 +67,21 @@ mod windows_impl {
 
     fn network_callback(record: &EventRecord, schemas: &SchemaLocator) {
         let (protocol, is_download) = match record.event_id() {
-            10 => (EtwProtocol::Tcp, false),
-            11 => (EtwProtocol::Tcp, true),
-            42 => (EtwProtocol::Udp, false),
-            43 => (EtwProtocol::Udp, true),
+            10 | 26 => (EtwProtocol::Tcp, false), // IPv4/IPv6 send
+            11 | 27 => (EtwProtocol::Tcp, true),  // IPv4/IPv6 receive
+            42 | 58 => (EtwProtocol::Udp, false), // IPv4/IPv6 send
+            43 | 59 => (EtwProtocol::Udp, true),  // IPv4/IPv6 receive
             _ => return,
         };
         let Ok(schema) = schemas.event_schema(record) else {
             return;
         };
         let parser = Parser::create(record, &schema);
+        // Kernel-Network carries the owning socket process in EventData.PID.
+        // EventRecord.process_id() is the producer/session PID and may be System.
+        let pid: u32 = parser.try_parse("PID").unwrap_or(0);
         let bytes: u32 = parser.try_parse("size").unwrap_or(0);
-        if bytes == 0 {
+        if pid == 0 || bytes == 0 {
             return;
         }
 
@@ -87,7 +90,7 @@ mod windows_impl {
             .unwrap_or_default()
             .as_millis() as u64;
         record_packet(&EtwNetworkPacketEvent {
-            pid: record.process_id(),
+            pid,
             is_download,
             bytes,
             protocol,
