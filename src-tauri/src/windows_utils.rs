@@ -44,7 +44,7 @@ fn run_powershell_with_timeout(
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
     use std::thread;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let wrapped = format!(
