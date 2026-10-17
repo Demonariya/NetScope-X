@@ -82,6 +82,11 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
 
+      # npm can omit platform-specific optional dependencies from the lockfile.
+      # Pin the native binding to the Rolldown version already locked by Vite.
+      - name: Ensure Rolldown Windows x64 native binding is installed
+        run: npm install --no-save --legacy-peer-deps @rolldown/binding-win32-x64-msvc@1.2.14
+
       - name: Build frontend production assets
         run: npm run build
 
