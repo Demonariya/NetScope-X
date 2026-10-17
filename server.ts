@@ -6,7 +6,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
@@ -603,20 +603,38 @@ app.get('/api/network/live-stats', (req, res) => {
 
 app.get('/api/network/ping', async (req, res) => {
   const target = (req.query.target as string) || currentSettings.diagnostics.activePingTarget || '1.1.1.1';
+  if (req.query.target && typeof req.query.target === 'string') {
+    currentSettings.diagnostics.activePingTarget = req.query.target;
+  }
+  
+  const probe = await performSocketProbe(target, 443, 1200);
   let cached = pingStatsCache[target];
 
   if (!cached) {
-    const probe = await performSocketProbe(target, 443, 1000);
     cached = {
       latency: probe.latency,
       min: probe.latency,
       max: probe.latency,
       avg: probe.latency,
       jitter: 1.1,
-      loss: 0,
+      loss: probe.status === 'timeout' ? 10 : 0,
       history: [probe.latency],
     };
     pingStatsCache[target] = cached;
+  } else {
+    cached.latency = probe.latency;
+    cached.history.push(probe.latency);
+    if (cached.history.length > 20) cached.history.shift();
+
+    const sum = cached.history.reduce((a, b) => a + b, 0);
+    cached.avg = sum / cached.history.length;
+    cached.min = Math.min(...cached.history);
+    cached.max = Math.max(...cached.history);
+    if (probe.status === 'timeout') {
+      cached.loss = Math.min(100, cached.loss + 5);
+    } else {
+      cached.loss = Math.max(0, cached.loss - 2);
+    }
   }
 
   res.json({
@@ -628,7 +646,7 @@ app.get('/api/network/ping', async (req, res) => {
     avgLatencyMs: cached.avg,
     jitterMs: cached.jitter,
     packetLossPercent: cached.loss,
-    status: 'success',
+    status: probe.status,
     lastChecked: Date.now(),
     history: cached.history,
   });

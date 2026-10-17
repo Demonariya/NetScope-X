@@ -11,7 +11,7 @@ use commands::*;
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            #[cfg(desktop)]
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             {
                 let _tray = tray::create_tray(app.handle())?;
             }

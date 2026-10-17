@@ -13,11 +13,13 @@ export type TabType = 'overview' | 'applications' | 'traffic' | 'connections' | 
 interface NavigationProps {
   activeTab: TabType;
   onTabChange: (tab: TabType) => void;
+  accentColor?: string;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
   activeTab,
   onTabChange,
+  accentColor = '#38bdf8',
 }) => {
   const tabs = [
     { id: 'overview' as TabType, label: 'Overview', icon: Activity },
@@ -38,13 +40,17 @@ export const Navigation: React.FC<NavigationProps> = ({
           <button
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
-            className={`flex flex-col items-center justify-center flex-1 py-1 px-0.5 rounded-md transition-all ${
+            style={{ color: isActive ? accentColor : undefined }}
+            className={`flex flex-col items-center justify-center flex-1 py-1 px-0.5 rounded-md transition-all cursor-pointer ${
               isActive
-                ? 'text-sky-400 font-semibold'
+                ? 'font-semibold'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Icon className={`w-4 h-4 mb-0.5 transition-transform ${isActive ? 'scale-110 text-sky-400' : ''}`} />
+            <Icon
+              style={{ color: isActive ? accentColor : undefined }}
+              className={`w-4 h-4 mb-0.5 transition-transform ${isActive ? 'scale-110' : ''}`}
+            />
             <span className="text-[10px] tracking-tight truncate max-w-full">{tab.label}</span>
           </button>
         );

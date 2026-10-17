@@ -24,9 +24,11 @@ interface OverviewTabProps {
   selectedAdapterId: string;
   onSelectAdapter: (id: string) => void;
   liveStats: NetworkStats | null;
+  activePingTarget?: string;
   pingResult: PingResult | null;
   onSelectPingTarget: (target: string) => void;
   speedHistory: { time: string; downBps: number; upBps: number }[];
+  accentColor?: string;
 }
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
@@ -34,9 +36,11 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   selectedAdapterId,
   onSelectAdapter,
   liveStats,
+  activePingTarget,
   pingResult,
   onSelectPingTarget,
   speedHistory,
+  accentColor = '#38bdf8',
 }) => {
   const [chartTimeframe, setChartTimeframe] = useState<'30s' | '60s' | '5m'>('30s');
   const [customPingHost, setCustomPingHost] = useState('');
@@ -248,7 +252,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         {/* Chart Legend */}
         <div className="flex items-center gap-3 text-[11px] pb-1">
           <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-xs bg-sky-400" />
+            <div className="w-2.5 h-2.5 rounded-xs" style={{ backgroundColor: accentColor }} />
             <span className="text-slate-400">Download</span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -263,8 +267,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             <AreaChart data={filteredHistory} margin={{ top: 5, right: 5, left: -22, bottom: 0 }}>
               <defs>
                 <linearGradient id="downGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
+                  <stop offset="5%" stopColor={accentColor} stopOpacity={0.4} />
+                  <stop offset="95%" stopColor={accentColor} stopOpacity={0.0} />
                 </linearGradient>
                 <linearGradient id="upGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#2dd4bf" stopOpacity={0.4} />
@@ -294,7 +298,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <Area
                 type="monotone"
                 dataKey="downKbps"
-                stroke="#38bdf8"
+                stroke={accentColor}
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#downGrad)"
@@ -324,19 +328,22 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
           {/* Quick Target Switcher */}
           <div className="flex items-center gap-1 text-[11px]">
-            {['1.1.1.1', '8.8.8.8', '9.9.9.9'].map(target => (
-              <button
-                key={target}
-                onClick={() => onSelectPingTarget(target)}
-                className={`px-2 py-0.5 rounded border transition-colors shrink-0 ${
-                  pingResult?.target === target
-                    ? 'bg-sky-500/20 border-sky-500/40 text-sky-300 font-medium'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {target === '1.1.1.1' ? '1.1.1.1' : target === '8.8.8.8' ? '8.8.8.8' : 'Quad9'}
-              </button>
-            ))}
+            {['1.1.1.1', '8.8.8.8', '9.9.9.9'].map(target => {
+              const isSelected = activePingTarget === target || (!activePingTarget && pingResult?.target === target);
+              return (
+                <button
+                  key={target}
+                  onClick={() => onSelectPingTarget(target)}
+                  className={`px-2 py-0.5 rounded border transition-colors shrink-0 ${
+                    isSelected
+                      ? 'bg-sky-500/20 border-sky-500/40 text-sky-300 font-medium'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {target === '1.1.1.1' ? '1.1.1.1' : target === '8.8.8.8' ? '8.8.8.8' : 'Quad9'}
+                </button>
+              );
+            })}
           </div>
         </div>
 

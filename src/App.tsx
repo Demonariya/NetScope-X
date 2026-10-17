@@ -41,14 +41,21 @@ export default function App() {
         effective = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
       }
       const root = document.documentElement;
+      const body = document.body;
       if (effective === 'light') {
         root.classList.add('light');
         root.classList.remove('dark');
         root.setAttribute('data-theme', 'light');
+        body?.classList.add('light');
+        body?.classList.remove('dark');
+        body?.setAttribute('data-theme', 'light');
       } else {
         root.classList.add('dark');
         root.classList.remove('light');
         root.setAttribute('data-theme', 'dark');
+        body?.classList.add('dark');
+        body?.classList.remove('light');
+        body?.setAttribute('data-theme', 'dark');
       }
     };
 
@@ -67,6 +74,7 @@ export default function App() {
   const [adapters, setAdapters] = useState<NetworkAdapter[]>([]);
   const [selectedAdapterId, setSelectedAdapterId] = useState<string>('auto');
   const [liveStats, setLiveStats] = useState<NetworkStats | null>(null);
+  const [activePingTarget, setActivePingTarget] = useState<string>('1.1.1.1');
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
   const [processes, setProcesses] = useState<ProcessNetworkUsage[]>([]);
   const [connections, setConnections] = useState<SocketConnection[]>([]);
@@ -106,8 +114,14 @@ export default function App() {
         setConnections(conns);
         setHistory(hist);
         setSettings(cfg);
+        if (cfg?.diagnostics?.activePingTarget) {
+          setActivePingTarget(cfg.diagnostics.activePingTarget);
+        }
         if (cfg?.appearance?.theme) {
-          setTheme(cfg.appearance.theme);
+          const localSaved = localStorage.getItem('netscope_theme');
+          if (!localSaved) {
+            setTheme(cfg.appearance.theme);
+          }
         }
       } catch (err) {
         console.error('Initial telemetry load failed:', err);
@@ -125,7 +139,7 @@ export default function App() {
         const [st, procs, png] = await Promise.all([
           api.getLiveStats(),
           api.getProcesses(),
-          api.getPing(settings?.diagnostics.activePingTarget),
+          api.getPing(activePingTarget),
         ]);
 
         setLiveStats(st);
@@ -144,7 +158,7 @@ export default function App() {
     }, settings?.monitoring.updateIntervalMs || 1000);
 
     return () => clearInterval(interval);
-  }, [isMonitoring, settings?.monitoring.updateIntervalMs, settings?.diagnostics.activePingTarget]);
+  }, [isMonitoring, settings?.monitoring.updateIntervalMs, activePingTarget]);
 
   // Handle adapter selection
   const handleSelectAdapter = (id: string) => {
@@ -154,12 +168,23 @@ export default function App() {
 
   // Handle ping target change
   const handleSelectPingTarget = async (target: string) => {
+    const cleanTarget = target.trim();
+    if (!cleanTarget) return;
+    setActivePingTarget(cleanTarget);
     try {
-      const res = await api.getPing(target);
+      const res = await api.getPing(cleanTarget);
       setPingResult(res);
-      addToast('Ping Probe Switched', `Target: ${target} (${res.latencyMs.toFixed(1)} ms)`, 'success');
+      setSettings(prev =>
+        prev
+          ? {
+              ...prev,
+              diagnostics: { ...prev.diagnostics, activePingTarget: cleanTarget },
+            }
+          : prev
+      );
+      addToast('Ping Probe Switched', `Target: ${cleanTarget} (${res.latencyMs.toFixed(1)} ms)`, 'success');
     } catch {
-      addToast('Probe Failed', `Could not reach ${target}`, 'error');
+      addToast('Probe Failed', `Could not reach ${cleanTarget}`, 'error');
     }
   };
 
@@ -224,6 +249,11 @@ export default function App() {
     addToast('Theme Updated', `${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} mode active`, 'info');
   };
 
+  const handleToggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark';
+    handleThemeChange(next);
+  };
+
   // Save settings
   const handleSaveSettings = async (newSettings: AppSettings) => {
     setSettings(newSettings);
@@ -268,6 +298,8 @@ export default function App() {
           onOpenTrayModal={() => setIsTrayModalOpen(true)}
           onMinimize={handleMinimize}
           onClose={handleClose}
+          currentTheme={theme}
+          onToggleTheme={handleToggleTheme}
         />
 
         {/* Viewport Content Area with Vertical Scrolling */}
@@ -278,6 +310,7 @@ export default function App() {
               selectedAdapterId={selectedAdapterId}
               onSelectAdapter={handleSelectAdapter}
               liveStats={liveStats}
+              activePingTarget={activePingTarget}
               pingResult={pingResult}
               onSelectPingTarget={handleSelectPingTarget}
               speedHistory={speedHistory}

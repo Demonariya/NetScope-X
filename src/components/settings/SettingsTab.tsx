@@ -17,6 +17,8 @@ interface SettingsTabProps {
   adapters: NetworkAdapter[];
   currentTheme: 'dark' | 'light' | 'system';
   onThemeChange: (theme: 'dark' | 'light' | 'system') => void;
+  accentColor?: string;
+  onAccentColorChange?: (color: string) => void;
   onSaveSettings: (settings: AppSettings) => void;
   onResetSession: () => void;
   onClearHistory: () => void;
@@ -28,11 +30,28 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   adapters,
   currentTheme,
   onThemeChange,
+  accentColor = '#38bdf8',
+  onAccentColorChange,
   onSaveSettings,
   onResetSession,
   onShowToast,
 }) => {
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
+
+  React.useEffect(() => {
+    setLocalSettings(settings);
+  }, [settings]);
+
+  const handleAccentColorSelect = (color: string) => {
+    onAccentColorChange?.(color);
+    setLocalSettings(prev => ({
+      ...prev,
+      appearance: {
+        ...prev.appearance,
+        accentColor: color,
+      },
+    }));
+  };
 
   const handleToggle = (path: string[]) => {
     setLocalSettings(prev => {
@@ -157,23 +176,32 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               <span className="text-[11px] text-slate-400">Telemetry highlight and graph stroke</span>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              {['#38bdf8', '#0ea5e9', '#2dd4bf', '#6366f1'].map(color => (
-                <button
-                  key={color}
-                  onClick={() =>
-                    setLocalSettings(prev => ({
-                      ...prev,
-                      appearance: { ...prev.appearance, accentColor: color },
-                    }))
-                  }
-                  className={`w-5 h-5 rounded-full border-2 transition-transform ${
-                    localSettings.appearance.accentColor === color
-                      ? 'border-white scale-110'
-                      : 'border-transparent'
-                  }`}
-                  style={{ backgroundColor: color }}
-                />
-              ))}
+              {[
+                { hex: '#38bdf8', label: 'Sky' },
+                { hex: '#0ea5e9', label: 'Ocean' },
+                { hex: '#2dd4bf', label: 'Teal' },
+                { hex: '#818cf8', label: 'Indigo' },
+                { hex: '#ec4899', label: 'Pink' },
+                { hex: '#f59e0b', label: 'Amber' },
+              ].map(({ hex, label }) => {
+                const isSelected = localSettings.appearance.accentColor === hex || accentColor === hex;
+                return (
+                  <button
+                    key={hex}
+                    type="button"
+                    onClick={() => handleAccentColorSelect(hex)}
+                    className={`w-5.5 h-5.5 rounded-full border-2 transition-all cursor-pointer flex items-center justify-center ${
+                      isSelected
+                        ? 'border-white scale-125 shadow-md shadow-black/40 ring-2 ring-white/30'
+                        : 'border-transparent hover:scale-110 opacity-75 hover:opacity-100'
+                    }`}
+                    style={{ backgroundColor: hex }}
+                    title={`Accent: ${label} (${hex})`}
+                  >
+                    {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white shadow-xs" />}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 
 describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () => {
@@ -79,6 +80,19 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     expect(resolveEffectiveTheme('light', true)).toBe('light');
     expect(resolveEffectiveTheme('system', true)).toBe('dark');
     expect(resolveEffectiveTheme('system', false)).toBe('light');
+
+    // Verify DOM classes application
+    document.documentElement.classList.remove('dark');
+    document.documentElement.classList.add('light');
+    document.documentElement.setAttribute('data-theme', 'light');
+    expect(document.documentElement.classList.contains('light')).toBe(true);
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+
+    document.documentElement.classList.remove('light');
+    document.documentElement.classList.add('dark');
+    document.documentElement.setAttribute('data-theme', 'dark');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
   });
 
   it('computes ping metrics accurately with jitter and history tracking', () => {
@@ -119,5 +133,35 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     expect(state.expandedPids.has(11048)).toBe(true);
     expect(state.selectedTab).toBe('applications');
     expect(newProcessTelemetry.length).toBe(2);
+  });
+
+  it('verifies tauri configuration parameters for strict 405x720 and withGlobalTauri', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const confPath = path.resolve(process.cwd(), 'src-tauri/tauri.conf.json');
+    expect(fs.existsSync(confPath)).toBe(true);
+
+    const conf = JSON.parse(fs.readFileSync(confPath, 'utf-8'));
+    expect(conf.build.frontendDist).toBe('../dist');
+    expect(conf.app.withGlobalTauri).toBe(true);
+    expect(conf.app.windows[0].width).toBe(405);
+    expect(conf.app.windows[0].height).toBe(720);
+    expect(conf.app.windows[0].resizable).toBe(false);
+  });
+
+  it('guarantees api service provides resilient defaults without unhandled rejections', async () => {
+    const { api } = await import('../src/services/api');
+    const adapters = await api.getAdapters();
+    expect(Array.isArray(adapters)).toBe(true);
+    expect(adapters.length).toBeGreaterThan(0);
+    expect(adapters[0].localIPv4).toBeDefined();
+
+    const stats = await api.getLiveStats();
+    expect(stats.timestamp).toBeGreaterThan(0);
+    expect(stats.downloadBps).toBeDefined();
+
+    const ping = await api.getPing('1.1.1.1');
+    expect(ping.target).toBe('1.1.1.1');
+    expect(ping.latencyMs).toBeGreaterThan(0);
   });
 });

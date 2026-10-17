@@ -46,8 +46,8 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      # npm's current optional-dependency lockfile can omit platform packages.
-      # Install the exact native Windows packages required by locked tool versions.
+      # npm can omit platform-specific optional dependencies from a lockfile.
+      # Install every Windows-native frontend binding explicitly.
       - name: Install Windows native frontend bindings
         shell: pwsh
         run: |
@@ -59,7 +59,7 @@ jobs:
             lightningcss-win32-x64-msvc-v132@npm:lightningcss-win32-x64-msvc@1.32.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # The follow-up npm install can dedupe/prune Tailwind's exact nested dependency.
+      # Keep Tailwind's pinned LightningCSS 1.32.0 at its expected nested path.
       - name: Ensure Tailwind LightningCSS package is installed
         shell: pwsh
         run: |
@@ -77,7 +77,7 @@ jobs:
             throw "Could not install Tailwind's LightningCSS package: $tailwindLightningCssPackage"
           }
 
-      # LightningCSS 1.32 is nested under Tailwind; Vite uses 1.33 at the root.
+      # LightningCSS loads its version-specific binary beside its own package.
       - name: Place version-matched LightningCSS binaries
         shell: pwsh
         run: |
@@ -92,6 +92,7 @@ jobs:
               throw "Required LightningCSS native binding is missing: $file"
             }
           }
+
           foreach ($directory in @((Split-Path -Parent $viteLightningCss), (Split-Path -Parent $tailwindLightningCss))) {
             if (-not (Test-Path -LiteralPath $directory)) {
               throw "Required LightningCSS package directory is missing: $directory"
@@ -100,6 +101,7 @@ jobs:
 
           Copy-Item -LiteralPath $binding133 -Destination $viteLightningCss -Force
           Copy-Item -LiteralPath $binding132 -Destination $tailwindLightningCss -Force
+          Write-Host 'Installed LightningCSS 1.33.0 and 1.32.0 native bindings.'
 
       - name: Run TypeScript verification
         run: npm run lint
@@ -122,7 +124,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p ./dist-release
-
           echo "Searching for generated Windows release artifacts..."
           find src-tauri/target/release -maxdepth 3 -type f \( -name "*.exe" -o -name "*.msi" \)
 
