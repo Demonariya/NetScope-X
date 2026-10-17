@@ -35,7 +35,8 @@ impl AppRuntimeState {
     }
 
     pub fn set_minimize_to_tray_on_close(&self, enabled: bool) {
-        self.minimize_to_tray_on_close.store(enabled, Ordering::SeqCst);
+        self.minimize_to_tray_on_close
+            .store(enabled, Ordering::SeqCst);
     }
 
     pub fn set_monitoring_enabled(&self, enabled: bool) {
