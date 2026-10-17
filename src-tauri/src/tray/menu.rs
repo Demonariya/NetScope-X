@@ -28,8 +28,14 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<TrayIcon<R>, tauri:
     let menu = Menu::with_items(app, &[&show_item, &toggle_monitor, &separator, &quit_item])?;
 
     let tray = TrayIconBuilder::new()
+        .icon(
+            app.default_window_icon()
+                .expect("NetScope X must have a default window icon")
+                .clone(),
+        )
         .tooltip("NetScope X — Live Network Monitor")
         .menu(&menu)
+        .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => restore_main_window(app),
             "toggle_monitor" => {

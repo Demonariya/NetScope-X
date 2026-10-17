@@ -316,26 +316,37 @@ export default function App() {
   };
 
   // Handle Theme Change
-  const handleThemeChange = (newTheme: 'dark' | 'light' | 'system') => {
+  const handleThemeChange = async (newTheme: 'dark' | 'light' | 'system') => {
     setTheme(newTheme);
-    if (settings) {
-      const updated = {
-        ...settings,
-        appearance: {
-          ...settings.appearance,
-          theme: newTheme,
-          accentColor,
-        },
-      };
-      setSettings(updated);
-      api.saveSettings(updated);
+    if (!settings) {
+      addToast('Theme Updated', `${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} mode active for this session`, 'info');
+      return;
     }
-    addToast('Theme Updated', `${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} mode active`, 'info');
+
+    const updated = {
+      ...settings,
+      appearance: {
+        ...settings.appearance,
+        theme: newTheme,
+        accentColor,
+      },
+    };
+    setSettings(updated);
+    try {
+      await api.saveSettings(updated);
+      addToast('Theme Updated', `${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)} mode saved`, 'success');
+    } catch (error) {
+      addToast(
+        'Theme Not Saved',
+        error instanceof Error ? error.message : String(error),
+        'error'
+      );
+    }
   };
 
   const handleToggleTheme = () => {
     const next = theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark';
-    handleThemeChange(next);
+    void handleThemeChange(next);
   };
 
   // Save settings
@@ -486,7 +497,7 @@ export default function App() {
             <HistoryTab
               history={history}
               onClearHistory={handleClearHistory}
-              onShowToast={(t, m) => addToast(t, m, 'success')}
+              onShowToast={(t, m, type = 'info') => addToast(t, m, type)}
             />
           )}
 

@@ -16,13 +16,13 @@ interface SettingsTabProps {
   settings: AppSettings;
   adapters: NetworkAdapter[];
   currentTheme: 'dark' | 'light' | 'system';
-  onThemeChange: (theme: 'dark' | 'light' | 'system') => void;
+  onThemeChange: (theme: 'dark' | 'light' | 'system') => void | Promise<void>;
   accentColor?: string;
   onAccentColorChange?: (color: string) => void;
-  onSaveSettings: (settings: AppSettings) => void;
+  onSaveSettings: (settings: AppSettings) => void | Promise<void>;
   onResetSession: () => void;
   onClearHistory: () => void;
-  onShowToast: (title: string, message?: string) => void;
+  onShowToast: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
@@ -66,7 +66,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   };
 
   const handleThemeSelect = (theme: 'dark' | 'light' | 'system') => {
-    onThemeChange(theme);
+    void onThemeChange(theme);
     setLocalSettings(prev => ({
       ...prev,
       appearance: {
@@ -76,9 +76,17 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     }));
   };
 
-  const handleSave = () => {
-    onSaveSettings(localSettings);
-    onShowToast('Settings Saved', 'Preferences have been persisted');
+  const handleSave = async () => {
+    try {
+      await onSaveSettings(localSettings);
+      onShowToast('Settings Saved', 'Preferences have been persisted', 'success');
+    } catch (error) {
+      onShowToast(
+        'Settings Not Saved',
+        error instanceof Error ? error.message : String(error),
+        'error'
+      );
+    }
   };
 
   return (

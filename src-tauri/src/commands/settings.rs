@@ -16,7 +16,10 @@ fn settings_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 #[command]
 pub fn get_settings(app: AppHandle) -> Result<AppConfig, String> {
     let path = settings_file(&app)?;
-    Ok(SettingsPersistence::load_or_default(path))
+    let settings = SettingsPersistence::load_or_default(path);
+    app.state::<crate::AppRuntimeState>()
+        .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
+    Ok(settings)
 }
 
 #[command]
@@ -24,6 +27,8 @@ pub fn save_settings(app: AppHandle, settings: AppConfig) -> Result<bool, String
     let path = settings_file(&app)?;
     SettingsPersistence::save(path, &settings)
         .map_err(|error| format!("Could not save application settings: {error}"))?;
+    app.state::<crate::AppRuntimeState>()
+        .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
     Ok(true)
 }
 
