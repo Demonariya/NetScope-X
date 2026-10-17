@@ -82,19 +82,21 @@ impl MonitoringCollector {
             sample.hourly_upload_bytes = 0;
         }
 
-        let mut delta_received = 0_u64;
-        let mut delta_sent = 0_u64;
         if let (Some(previous_received), Some(previous_sent), Some(previous_time)) = (
             sample.last_received,
             sample.last_sent,
             sample.last_timestamp_ms,
         ) {
             let elapsed_ms = counters.timestamp_ms.saturating_sub(previous_time);
-            if elapsed_ms > 0 {
-                delta_received = counters.bytes_received.saturating_sub(previous_received);
-                delta_sent = counters.bytes_sent.saturating_sub(previous_sent);
-                sample.download_bps = delta_received.saturating_mul(1000) / elapsed_ms;
-                sample.upload_bps = delta_sent.saturating_mul(1000) / elapsed_ms;
+            let delta_received = counters.bytes_received.saturating_sub(previous_received);
+            let delta_sent = counters.bytes_sent.saturating_sub(previous_sent);
+
+            if let (Some(download_bps), Some(upload_bps)) = (
+                delta_received.saturating_mul(1000).checked_div(elapsed_ms),
+                delta_sent.saturating_mul(1000).checked_div(elapsed_ms),
+            ) {
+                sample.download_bps = download_bps;
+                sample.upload_bps = upload_bps;
                 sample.session_download_bytes =
                     sample.session_download_bytes.saturating_add(delta_received);
                 sample.session_upload_bytes =
