@@ -34,3 +34,9 @@ impl ProcessAttributionEngine {
         }
     }
 }
+
+impl Default for ProcessAttributionEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
