@@ -6,15 +6,23 @@ pub fn run_powershell_elevated(script: &str) -> Result<String, String> {
     use base64::Engine;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-    let result_path = std::env::temp_dir().join(format!("netscope-firewall-{}-{nonce}.json", std::process::id()));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let result_path = std::env::temp_dir().join(format!(
+        "netscope-firewall-{}-{nonce}.json",
+        std::process::id()
+    ));
     let result_path = result_path.to_string_lossy().to_string();
     let ps_path = result_path.replace("'", "''");
     let inner_script = format!(
         "$ErrorActionPreference = 'Stop'; try {{\n{script}\n[System.IO.File]::WriteAllText('{ps_path}', (ConvertTo-Json -Compress -InputObject @{{ success = $true; error = '' }}), [System.Text.UTF8Encoding]::new($false)); exit 0\n}} catch {{ [System.IO.File]::WriteAllText('{ps_path}', (ConvertTo-Json -Compress -InputObject @{{ success = $false; error = [string]$_.Exception.Message }}), [System.Text.UTF8Encoding]::new($false)); exit 1 }}"
     );
     let mut utf16_bytes = Vec::with_capacity(inner_script.len() * 2);
-    for unit in inner_script.encode_utf16() { utf16_bytes.extend_from_slice(&unit.to_le_bytes()); }
+    for unit in inner_script.encode_utf16() {
+        utf16_bytes.extend_from_slice(&unit.to_le_bytes());
+    }
     let encoded_child = STANDARD.encode(utf16_bytes);
     let outer_script = format!(
         "$ErrorActionPreference = 'Stop'; $encodedChild = '{encoded_child}'; $resultPath = '{ps_path}'; $childArgs = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encodedChild); try {{ $child = Start-Process -FilePath 'powershell.exe' -ArgumentList $childArgs -Verb RunAs -Wait -PassThru -WindowStyle Hidden }} catch {{ throw ('Administrator approval was cancelled or elevation failed: ' + $_.Exception.Message) }}; if (-not (Test-Path -LiteralPath $resultPath)) {{ throw 'Elevated firewall operation did not return a result.' }}; $payload = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json; Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue; if ($child.ExitCode -ne 0 -or -not $payload.success) {{ throw ('Elevated firewall operation failed: ' + [string]$payload.error) }}; Write-Output 'success'"

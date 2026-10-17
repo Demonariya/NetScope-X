@@ -83,6 +83,8 @@ if (-not {block_value}) {{
     if output.trim() == "success" {
         Ok(true)
     } else {
-        Err(format!("Windows Firewall operation did not complete successfully: {output}"))
+        Err(format!(
+            "Windows Firewall operation did not complete successfully: {output}"
+        ))
     }
 }

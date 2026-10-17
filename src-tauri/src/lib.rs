@@ -55,7 +55,9 @@ pub fn run() {
             #[cfg(windows)]
             {
                 let session_name = format!("NetScopeX-{}", std::process::id());
-                if let Err(error) = crate::monitoring::etw::EtwSessionManager::start_session(&session_name) {
+                if let Err(error) =
+                    crate::monitoring::etw::EtwSessionManager::start_session(&session_name)
+                {
                     eprintln!("NetScope X per-application ETW telemetry is unavailable: {error}");
                 }
             }
