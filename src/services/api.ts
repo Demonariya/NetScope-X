@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { normalizePingResult } from '../utils/normalizers';
 import {
   NetworkAdapter,
@@ -10,7 +11,6 @@ import {
   AppSettings,
 } from '../types/network';
 
-// Detect if running inside Tauri 2 webview
 export const isTauri =
   typeof window !== 'undefined' &&
   ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
@@ -26,41 +26,24 @@ declare global {
   }
 }
 
-async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
-  if (!isTauri) return null;
-  try {
-    return await invoke<T>(cmd, args);
-  } catch (err) {
-    if (window.__TAURI__?.core?.invoke) {
-      try {
-        return await window.__TAURI__.core.invoke<T>(cmd, args);
-      } catch {
-        // secondary check
-      }
-    }
-    console.warn(`[Tauri] command "${cmd}" invocation warning:`, err);
-    throw err;
+async function nativeCommand<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!isTauri) {
+    throw new Error(`The "${cmd}" command requires the NetScope X Windows desktop application.`);
   }
+  return invoke<T>(cmd, args);
 }
 
-const defaultAdapters: NetworkAdapter[] = [
-  {
-    id: 'eth0',
-    name: 'Ethernet',
-    description: 'Intel(R) Ethernet Controller (Default)',
-    type: 'ethernet',
-    status: 'connected',
-    localIPv4: '192.168.1.145',
-    localIPv6: 'fe80::9a11:7b42:dc20:ea15%12',
-    macAddress: '00:1A:2B:3C:4D:5E',
-    gateway: '192.168.1.1',
-    dnsServers: ['1.1.1.1', '8.8.8.8'],
-    speedMbps: 1000,
-    isDefault: true,
-  },
-];
+async function httpJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  if (!response.ok) {
+    let detail = '';
+    try { detail = (await response.text()).trim(); } catch {}
+    throw new Error(`Request failed (${response.status})${detail ? `: ${detail}` : ''}`);
+  }
+  return response.json() as Promise<T>;
+}
 
-const defaultSettings: AppSettings = {
+export const DEFAULT_SETTINGS: AppSettings = {
   monitoring: {
     enabled: true,
     perAppEnabled: true,
@@ -101,247 +84,131 @@ const defaultSettings: AppSettings = {
 
 export const api = {
   async getAdapters(): Promise<NetworkAdapter[]> {
-    if (isTauri) {
-      try {
-        const res = await tauriInvoke<NetworkAdapter[]>('get_network_adapters');
-        if (res && res.length > 0) return res;
-      } catch (err) {
-        console.warn('Native get_network_adapters warning:', err);
-      }
-    }
-    try {
-      const res = await fetch('/api/network/adapters');
-      if (res.ok) return await res.json();
-    } catch {
-      // In offline or desktop mode, provide default adapter
-    }
-    return defaultAdapters;
+    if (isTauri) return nativeCommand<NetworkAdapter[]>('get_network_adapters');
+    return httpJson<NetworkAdapter[]>('/api/network/adapters');
   },
 
-  async getLiveStats(): Promise<NetworkStats> {
+  async getLiveStats(adapterId = 'auto'): Promise<NetworkStats> {
     if (isTauri) {
-      try {
-        const res = await tauriInvoke<NetworkStats>('get_live_network_stats');
-        if (res) return res;
-      } catch (err) {
-        console.warn('Native get_live_network_stats warning:', err);
-      }
+      return nativeCommand<NetworkStats>('get_live_network_stats', { adapterId });
     }
-    try {
-      const res = await fetch('/api/network/live-stats');
-      if (res.ok) return await res.json();
-    } catch {}
-    return {
-      timestamp: Date.now(),
-      downloadBps: 0,
-      uploadBps: 0,
-      sessionDownloadBytes: 0,
-      sessionUploadBytes: 0,
-      totalSessionBytes: 0,
-      dailyDownloadBytes: 0,
-      dailyUploadBytes: 0,
-      activeAdapterId: 'auto',
-    };
+    return httpJson<NetworkStats>(`/api/network/live-stats?adapterId=${encodeURIComponent(adapterId)}`);
   },
 
   async getPing(target?: string): Promise<PingResult> {
-    const host = target || '1.1.1.1';
+    const host = target?.trim() || '1.1.1.1';
     if (isTauri) {
-      try {
-        const res = await tauriInvoke<unknown>('ping_target', { target: host });
-        if (res) return normalizePingResult(res, host);
-      } catch (err) {
-        console.warn('Native ping_target warning:', err);
-      }
+      const result = await nativeCommand<unknown>('ping_target', { target: host });
+      return normalizePingResult(result, host);
     }
-    try {
-      const query = `?target=${encodeURIComponent(host)}`;
-      const res = await fetch(`/api/network/ping${query}`);
-      if (res.ok) return normalizePingResult(await res.json(), host);
-    } catch {}
-    return {
-      target: host,
-      host,
-      latencyMs: 14.5,
-      minLatencyMs: 12.0,
-      maxLatencyMs: 18.0,
-      avgLatencyMs: 14.5,
-      jitterMs: 1.1,
-      packetLossPercent: 0,
-      status: 'success',
-      lastChecked: Date.now(),
-      history: [14.5],
-    };
+    const result = await httpJson<unknown>(`/api/network/ping?target=${encodeURIComponent(host)}`);
+    return normalizePingResult(result, host);
   },
 
   async getProcesses(): Promise<ProcessNetworkUsage[]> {
-    if (isTauri) {
-      try {
-        const res = await tauriInvoke<ProcessNetworkUsage[]>('get_process_network_usage');
-        if (res) return res;
-      } catch (err) {
-        console.warn('Native get_process_network_usage warning:', err);
-      }
-    }
-    try {
-      const res = await fetch('/api/processes');
-      if (res.ok) return await res.json();
-    } catch {}
-    return [];
+    if (isTauri) return nativeCommand<ProcessNetworkUsage[]>('get_process_network_usage');
+    return httpJson<ProcessNetworkUsage[]>('/api/processes');
   },
 
   async resetProcessStats(pid?: number): Promise<{ success: boolean }> {
     if (isTauri) {
-      try {
-        const res = await tauriInvoke<boolean>('reset_process_stats', { pid });
-        return { success: res ?? true };
-      } catch (err) {
-        console.warn('Native reset_process_stats warning:', err);
-      }
+      const success = await nativeCommand<boolean>('reset_process_stats', { pid });
+      if (!success) throw new Error('The native backend did not confirm the reset.');
+      return { success };
     }
-    try {
-      const res = await fetch('/api/processes/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pid }),
-      });
-      if (res.ok) return await res.json();
-    } catch {}
-    return { success: true };
+    return httpJson('/api/processes/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pid }),
+    });
   },
 
-  async toggleBlockProcess(
-    exeName: string,
-    block: boolean,
-    pid?: number
-  ): Promise<{ success: boolean; isBlocked: boolean; exeName: string }> {
+  async toggleBlockProcess(exeName: string, block: boolean, pid?: number): Promise<{ success: boolean; isBlocked: boolean; exeName: string }> {
     if (isTauri) {
-      try {
-        const res = await tauriInvoke<boolean>('toggle_process_block', {
-          exe_name: exeName,
-          exeName,
-          block,
-          pid,
-        });
-        return { success: res ?? true, isBlocked: block, exeName };
-      } catch (err) {
-        console.warn('Native toggle_process_block warning:', err);
-      }
+      const success = await nativeCommand<boolean>('toggle_process_block', { exeName, block, pid });
+      if (!success) throw new Error('Windows Firewall did not confirm the requested change.');
+      return { success, isBlocked: block, exeName };
     }
-    try {
-      const res = await fetch('/api/processes/block', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ exeName, block, pid }),
-      });
-      if (res.ok) return await res.json();
-    } catch {}
-    return { success: true, isBlocked: block, exeName };
+    return httpJson('/api/processes/block', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exeName, block, pid }),
+    });
   },
 
   async getConnections(): Promise<SocketConnection[]> {
-    if (isTauri) {
-      try {
-        const res = await tauriInvoke<SocketConnection[]>('get_active_connections');
-        if (res) return res;
-      } catch (err) {
-        console.warn('Native get_active_connections warning:', err);
-      }
-    }
-    try {
-      const res = await fetch('/api/network/connections');
-      if (res.ok) return await res.json();
-    } catch {}
-    return [];
+    if (isTauri) return nativeCommand<SocketConnection[]>('get_active_connections');
+    return httpJson<SocketConnection[]>('/api/network/connections');
   },
 
   async getHistory(range: 'today' | '7d' | '30d' | 'all' = 'today'): Promise<TrafficHistoryRecord[]> {
-    if (isTauri) {
-      try {
-        const res = await tauriInvoke<TrafficHistoryRecord[]>('get_traffic_history', { range });
-        if (res) return res;
-      } catch (err) {
-        console.warn('Native get_traffic_history warning:', err);
-      }
-    }
-    try {
-      const res = await fetch(`/api/history?range=${range}`);
-      if (res.ok) return await res.json();
-    } catch {}
-    return [];
+    if (isTauri) return nativeCommand<TrafficHistoryRecord[]>('get_traffic_history', { range });
+    return httpJson<TrafficHistoryRecord[]>(`/api/history?range=${encodeURIComponent(range)}`);
   },
 
   async getSettings(): Promise<AppSettings> {
-    if (isTauri) {
-      try {
-        const res = await tauriInvoke<AppSettings>('get_settings');
-        if (res) return res;
-      } catch (err) {
-        console.warn('Native get_settings warning:', err);
-      }
-    }
-    try {
-      const res = await fetch('/api/settings');
-      if (res.ok) return await res.json();
-    } catch {}
-    return defaultSettings;
+    if (isTauri) return nativeCommand<AppSettings>('get_settings');
+    return httpJson<AppSettings>('/api/settings');
   },
 
   async saveSettings(settings: AppSettings): Promise<{ success: boolean }> {
     if (isTauri) {
-      try {
-        const res = await tauriInvoke<boolean>('save_settings', { settings });
-        return { success: res ?? true };
-      } catch (err) {
-        console.warn('Native save_settings warning:', err);
-      }
+      const success = await nativeCommand<boolean>('save_settings', { settings });
+      if (!success) throw new Error('The native backend did not confirm saving settings.');
+      return { success };
     }
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
-      });
-      if (res.ok) return await res.json();
-    } catch {}
-    return { success: true };
+    return httpJson('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    });
   },
 
   async resetHistory(): Promise<{ success: boolean }> {
     if (isTauri) {
-      try {
-        const res = await tauriInvoke<boolean>('clear_history');
-        return { success: res ?? true };
-      } catch (err) {
-        console.warn('Native clear_history warning:', err);
-      }
+      const success = await nativeCommand<boolean>('clear_history');
+      if (!success) throw new Error('The native backend did not confirm clearing history.');
+      return { success };
     }
-    try {
-      const res = await fetch('/api/settings/reset-history', { method: 'POST' });
-      if (res.ok) return await res.json();
-    } catch {}
-    return { success: true };
+    return httpJson('/api/settings/reset-history', { method: 'POST' });
   },
 
-  async triggerTrayAction(
-    action: 'minimize' | 'restore' | 'toggle_monitor' | 'quit'
-  ): Promise<{ success: boolean; state?: string }> {
+  async triggerTrayAction(action: 'minimize' | 'restore' | 'hide' | 'toggle_monitor' | 'quit'): Promise<{ success: boolean; state?: string }> {
     if (isTauri) {
-      try {
-        const res = await tauriInvoke<boolean>('system_tray_action', { action });
-        return { success: res ?? true, state: action };
-      } catch (err) {
-        console.warn('Native system_tray_action warning:', err);
-      }
+      const success = await nativeCommand<boolean>('system_tray_action', { action });
+      if (!success) throw new Error(`The native backend did not complete tray action "${action}".`);
+      return { success, state: action };
     }
-    try {
-      const res = await fetch('/api/tray/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
-      });
-      if (res.ok) return await res.json();
-    } catch {}
-    return { success: true, state: action };
+    return httpJson('/api/tray/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+  },
+
+  async setMonitoringEnabled(enabled: boolean): Promise<boolean> {
+    return nativeCommand<boolean>('set_monitoring_enabled', { enabled });
+  },
+
+  async minimizeWindow(): Promise<void> {
+    if (!isTauri) throw new Error('Window controls are available only in the desktop application.');
+    await getCurrentWindow().minimize();
+  },
+
+  async hideWindow(): Promise<void> {
+    if (!isTauri) throw new Error('The system tray is available only in the desktop application.');
+    await getCurrentWindow().hide();
+  },
+
+  async restoreWindow(): Promise<void> {
+    if (!isTauri) throw new Error('Window controls are available only in the desktop application.');
+    const window = getCurrentWindow();
+    await window.show();
+    await window.unminimize();
+    await window.setFocus();
+  },
+
+  async exitApp(): Promise<void> {
+    await nativeCommand<void>('exit_app');
   },
 };
