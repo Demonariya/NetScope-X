@@ -94,7 +94,6 @@ export const SystemTrayModal: React.FC<SystemTrayModalProps> = ({
               onClick={() => {
                 onRestore();
                 onClose();
-                onShowToast('Window Restored', 'NetScope X brought to foreground');
               }}
               className="w-full px-3 py-2 text-left rounded-lg hover:bg-slate-800 flex items-center gap-2.5 transition-colors text-slate-200"
             >

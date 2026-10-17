@@ -20,7 +20,7 @@ impl InterfaceCounters {
         if adapter_id != "auto" && !adapter_id.chars().all(|value| value.is_ascii_digit()) {
             return Err("Invalid network interface ID.".to_string());
         }
-        let script_id = adapter_id.replace(''', "''");
+        let script_id = adapter_id.replace('\\'', "''");
         let script = format!(r#"
 $requestedId = '{script_id}'
 if ($requestedId -eq 'auto') {{
