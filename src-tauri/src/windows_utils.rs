@@ -1,4 +1,4 @@
-/// Helpers for querying live Windows networking APIs without opening a console window.
+//! Helpers for querying live Windows networking APIs without opening a console window.
 
 #[cfg(windows)]
 pub fn run_powershell_elevated(script: &str) -> Result<String, String> {

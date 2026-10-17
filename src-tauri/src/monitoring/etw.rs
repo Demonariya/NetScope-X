@@ -58,7 +58,7 @@ mod windows_impl {
     use ferrisetw::parser::Parser;
     use ferrisetw::provider::Provider;
     use ferrisetw::schema_locator::SchemaLocator;
-    use ferrisetw::trace::{TraceTrait, UserTrace};
+    use ferrisetw::trace::UserTrace;
     use ferrisetw::EventRecord;
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
