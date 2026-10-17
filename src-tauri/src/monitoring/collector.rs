@@ -57,3 +57,9 @@ impl MonitoringCollector {
         }
     }
 }
+
+impl Default for MonitoringCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
