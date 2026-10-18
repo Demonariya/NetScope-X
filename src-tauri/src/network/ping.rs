@@ -92,6 +92,7 @@ impl PingService {
             history: if success { vec![latency] } else { Vec::new() },
         }
     }
+}
 
 #[cfg(test)]
 mod tests {
