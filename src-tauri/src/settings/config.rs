@@ -26,7 +26,6 @@ pub struct DiagnosticsConfig {
     pub ping_interval_ms: u64,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartupConfig {

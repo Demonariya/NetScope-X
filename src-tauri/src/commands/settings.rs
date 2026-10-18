@@ -3,7 +3,11 @@ use crate::settings::persistence::SettingsPersistence;
 use crate::AppRuntimeState;
 use tauri::{command, AppHandle, Emitter, Manager, Runtime};
 
-pub fn apply_monitoring_state<R: Runtime>(app: &AppHandle<R>, enabled: bool, per_app_enabled: bool) {
+pub fn apply_monitoring_state<R: Runtime>(
+    app: &AppHandle<R>,
+    enabled: bool,
+    per_app_enabled: bool,
+) {
     let runtime = app.state::<AppRuntimeState>();
     runtime.set_monitoring_enabled(enabled);
     runtime.set_per_app_enabled(per_app_enabled);
@@ -60,7 +64,11 @@ pub async fn get_settings(app: AppHandle) -> Result<AppConfig, String> {
         let settings = SettingsPersistence::load_or_default(path);
         app.state::<AppRuntimeState>()
             .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
-        apply_monitoring_state(&app, settings.monitoring.enabled, settings.monitoring.per_app_enabled);
+        apply_monitoring_state(
+            &app,
+            settings.monitoring.enabled,
+            settings.monitoring.per_app_enabled,
+        );
         if let Err(error) = sync_windows_startup(settings.startup.start_with_windows) {
             eprintln!("NetScope X could not synchronize Windows startup registration: {error}");
         }
@@ -78,9 +86,14 @@ pub async fn save_settings(app: AppHandle, settings: AppConfig) -> Result<bool, 
             .map_err(|error| format!("Could not save application settings: {error}"))?;
         app.state::<AppRuntimeState>()
             .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
-        apply_monitoring_state(&app, settings.monitoring.enabled, settings.monitoring.per_app_enabled);
-        sync_windows_startup(settings.startup.start_with_windows)
-            .map_err(|error| format!("Settings were saved, but Windows startup registration failed: {error}"))?;
+        apply_monitoring_state(
+            &app,
+            settings.monitoring.enabled,
+            settings.monitoring.per_app_enabled,
+        );
+        sync_windows_startup(settings.startup.start_with_windows).map_err(|error| {
+            format!("Settings were saved, but Windows startup registration failed: {error}")
+        })?;
         Ok(true)
     })
     .await

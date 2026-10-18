@@ -1,7 +1,7 @@
 use crate::monitoring::collector::{LiveNetworkStats, MonitoringCollector};
+use crate::settings::{config::AppConfig, persistence::SettingsPersistence};
 use crate::storage::database::Database;
 use crate::storage::history::{HistoryStorage, TrafficHistoryEntry};
-use crate::settings::{config::AppConfig, persistence::SettingsPersistence};
 use rusqlite::Connection;
 use std::sync::{Mutex, OnceLock};
 use tauri::{command, AppHandle, Manager};
@@ -19,10 +19,9 @@ fn history_database_path(app: &AppHandle) -> Result<std::path::PathBuf, String> 
 fn prune_history_if_needed(app: &AppHandle, connection: &Connection) -> Result<(), String> {
     static LAST_PRUNE_KEY: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 
-    let config_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| format!("Cannot resolve settings directory for history retention: {error}"))?;
+    let config_dir = app.path().app_config_dir().map_err(|error| {
+        format!("Cannot resolve settings directory for history retention: {error}")
+    })?;
     let settings = SettingsPersistence::load_or_default(config_dir.join("settings.json"));
     let retention_days = settings.storage.data_retention_days.clamp(1, 365) as i64;
     let today = chrono::Local::now().date_naive();
