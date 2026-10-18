@@ -32,6 +32,11 @@ async function nativeCommand<T>(cmd: string, args?: Record<string, unknown>): Pr
   return invoke<T>(cmd, args);
 }
 
+async function runNativeWindowAction(action: 'minimize' | 'restore' | 'hide'): Promise<void> {
+  const success = await nativeCommand<boolean>('system_tray_action', { action });
+  if (!success) throw new Error(`The native backend did not complete window action "${action}".`);
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   monitoring: {
     enabled: true,
