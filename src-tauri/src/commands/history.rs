@@ -41,7 +41,6 @@ pub async fn clear_history(app: AppHandle) -> Result<bool, String> {
     .map_err(|error| format!("History clear worker failed: {error}"))?
 }
 
-
 #[command]
 pub async fn export_traffic_history(
     app: AppHandle,
@@ -51,11 +50,9 @@ pub async fn export_traffic_history(
     tauri::async_runtime::spawn_blocking(move || {
         let database = Database::open(history_database_path(&app)?)
             .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
-        let entries = HistoryStorage::get_history(
-            database.connection(),
-            range.as_deref().unwrap_or("today"),
-        )
-        .map_err(|error| format!("Cannot read traffic history for export: {error}"))?;
+        let entries =
+            HistoryStorage::get_history(database.connection(), range.as_deref().unwrap_or("today"))
+                .map_err(|error| format!("Cannot read traffic history for export: {error}"))?;
         match format.as_str() {
             "csv" => Ok(DataExporter::to_csv(&entries)),
             "json" => Ok(DataExporter::to_json(&entries)),

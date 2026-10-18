@@ -2,11 +2,22 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ConnectionType { Wifi, Ethernet, UsbTether, Cellular, Virtual, Loopback }
+pub enum ConnectionType {
+    Wifi,
+    Ethernet,
+    UsbTether,
+    Cellular,
+    Virtual,
+    Loopback,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AdapterStatus { Connected, Disconnected, Connecting }
+pub enum AdapterStatus {
+    Connected,
+    Disconnected,
+    Connecting,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,18 +40,22 @@ pub struct NetworkAdapter {
 }
 
 fn parse_adapter_payload(json: &str) -> Result<Vec<NetworkAdapter>, String> {
-    let payload: serde_json::Value = serde_json::from_str(json)
-        .map_err(|error| format!("Invalid adapter JSON: {error}"))?;
+    let payload: serde_json::Value =
+        serde_json::from_str(json).map_err(|error| format!("Invalid adapter JSON: {error}"))?;
     let rows = payload.get("adapters").cloned().unwrap_or(payload);
     match rows {
-        serde_json::Value::Array(rows) => rows.into_iter().map(|row| {
-            serde_json::from_value::<NetworkAdapter>(row)
+        serde_json::Value::Array(rows) => rows
+            .into_iter()
+            .map(|row| {
+                serde_json::from_value::<NetworkAdapter>(row)
+                    .map_err(|error| format!("Invalid network adapter record: {error}"))
+            })
+            .collect(),
+        serde_json::Value::Object(row) => {
+            serde_json::from_value::<NetworkAdapter>(serde_json::Value::Object(row))
+                .map(|adapter| vec![adapter])
                 .map_err(|error| format!("Invalid network adapter record: {error}"))
-        }).collect(),
-        serde_json::Value::Object(row) => serde_json::from_value::<NetworkAdapter>(
-            serde_json::Value::Object(row),
-        ).map(|adapter| vec![adapter])
-         .map_err(|error| format!("Invalid network adapter record: {error}")),
+        }
         serde_json::Value::Null => Ok(Vec::new()),
         _ => Err("Windows returned an unexpected network adapter payload.".to_string()),
     }
