@@ -27,7 +27,9 @@ pub struct NetworkAdapter {
     pub description: String,
     pub r#type: ConnectionType,
     pub status: AdapterStatus,
+    #[serde(rename = "localIPv4")]
     pub local_ipv4: String,
+    #[serde(rename = "localIPv6")]
     pub local_ipv6: String,
     pub mac_address: String,
     pub gateway: String,
