@@ -89,6 +89,7 @@ pub fn run() {
             toggle_process_block,
             get_traffic_history,
             clear_history,
+            export_traffic_history,
             get_settings,
             save_settings,
             system_tray_action,

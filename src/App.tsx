@@ -115,6 +115,7 @@ export default function App() {
   const [processes, setProcesses] = useState<ProcessNetworkUsage[]>([]);
   const [connections, setConnections] = useState<SocketConnection[]>([]);
   const [history, setHistory] = useState<TrafficHistoryRecord[]>([]);
+  const [historyRange, setHistoryRange] = useState<'today' | '7d' | '30d' | 'all'>('today');
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -160,6 +161,12 @@ export default function App() {
       setConnections(procs.flatMap(process => process.connections ?? []));
       setHistory(hist);
       setSettings(cfg);
+      const savedAdapterId = cfg.monitoring.adapterId || 'auto';
+      setSelectedAdapterId(
+        savedAdapterId === 'auto' || adp.some(adapter => adapter.id === savedAdapterId)
+          ? savedAdapterId
+          : 'auto'
+      );
       setIsMonitoring(cfg.monitoring.enabled);
 
       let storedAccent: string | null = null;
@@ -239,6 +246,31 @@ export default function App() {
     };
   }, [isMonitoring]);
 
+  // The backend refreshes SQLite history while either traffic-related tab is visible.
+  useEffect(() => {
+    if (activeTab !== 'traffic' && activeTab !== 'history') return;
+    let inFlight = false;
+    let cancelled = false;
+    const refreshHistory = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
+      try {
+        const records = await api.getHistory(historyRange);
+        if (!cancelled) setHistory(records);
+      } catch (error) {
+        console.warn('Traffic history refresh failed:', error);
+      } finally {
+        inFlight = false;
+      }
+    };
+    void refreshHistory();
+    const timer = isMonitoring ? window.setInterval(() => { void refreshHistory(); }, 15000) : undefined;
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearInterval(timer);
+    };
+  }, [isMonitoring, activeTab, historyRange]);
+
   // TCP latency uses blocking socket operations, so probe it less often than interface counters.
   useEffect(() => {
     if (!isMonitoring) return;
@@ -266,9 +298,18 @@ export default function App() {
     };
   }, [isMonitoring, activePingTarget, settings?.diagnostics.pingIntervalMs]);
 
-  // Handle adapter selection
+  // Adapter selection drives live counters and is persisted with Settings.
   const handleSelectAdapter = (id: string) => {
     setSelectedAdapterId(id);
+    setLiveStats(null);
+    setSpeedHistory([]);
+    if (settings) {
+      const updated = { ...settings, monitoring: { ...settings.monitoring, adapterId: id } };
+      setSettings(updated);
+      void api.saveSettings(updated).catch(error => {
+        addToast('Adapter Preference Not Saved', error instanceof Error ? error.message : String(error), 'error');
+      });
+    }
     addToast('Adapter Selected', id === 'auto' ? 'Default Gateway Auto-Routing' : id, 'info');
   };
 
@@ -401,6 +442,12 @@ export default function App() {
       appearance: { ...newSettings.appearance, accentColor: normalizedAccent },
     };
     setSettings(settingsToSave);
+    const requestedAdapterId = settingsToSave.monitoring.adapterId || 'auto';
+    setSelectedAdapterId(
+      requestedAdapterId === 'auto' || adapters.some(adapter => adapter.id === requestedAdapterId)
+        ? requestedAdapterId
+        : 'auto'
+    );
     setAccentColor(normalizedAccent);
     try {
       localStorage.setItem('netscope_accent_color', normalizedAccent);
@@ -426,7 +473,7 @@ export default function App() {
   const handleClearHistory = async () => {
     try {
       await api.resetHistory();
-      setHistory(await api.getHistory('today'));
+      setHistory(await api.getHistory(historyRange));
       addToast('History Cleared', 'Stored traffic history was deleted.', 'success');
     } catch (error) {
       addToast('History Clear Failed', error instanceof Error ? error.message : String(error), 'error');
@@ -531,8 +578,10 @@ export default function App() {
           {activeTab === 'history' && (
             <HistoryTab
               history={history}
+              historyRange={historyRange}
+              onRangeChange={setHistoryRange}
               onClearHistory={handleClearHistory}
-              onShowToast={(t, m) => addToast(t, m, 'success')}
+              onShowToast={(t, m, type) => addToast(t, m, type ?? 'info')}
             />
           )}
 

@@ -1,4 +1,5 @@
 use crate::storage::database::Database;
+use crate::storage::exports::DataExporter;
 use crate::storage::history::{HistoryStorage, TrafficHistoryEntry};
 use tauri::{command, AppHandle, Manager};
 
@@ -38,4 +39,29 @@ pub async fn clear_history(app: AppHandle) -> Result<bool, String> {
     })
     .await
     .map_err(|error| format!("History clear worker failed: {error}"))?
+}
+
+
+#[command]
+pub async fn export_traffic_history(
+    app: AppHandle,
+    format: String,
+    range: Option<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let database = Database::open(history_database_path(&app)?)
+            .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
+        let entries = HistoryStorage::get_history(
+            database.connection(),
+            range.as_deref().unwrap_or("today"),
+        )
+        .map_err(|error| format!("Cannot read traffic history for export: {error}"))?;
+        match format.as_str() {
+            "csv" => Ok(DataExporter::to_csv(&entries)),
+            "json" => Ok(DataExporter::to_json(&entries)),
+            _ => Err(format!("Unsupported export format: {format}")),
+        }
+    })
+    .await
+    .map_err(|error| format!("Traffic export worker failed: {error}"))?
 }

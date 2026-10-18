@@ -41,18 +41,15 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
     topApp: item.topApp,
   }));
 
-  // Do not rank processes when no per-app byte counters exist.
-  const hasProcessAttribution = processes.some(process =>
-    process.totalBytes > 0 ||
-    process.downloadBps > 0 ||
-    process.uploadBps > 0 ||
-    process.sessionDownloadBytes > 0 ||
-    process.sessionUploadBytes > 0
-  );
+  const attributedProcesses = processes.filter(process => process.trafficAvailable);
+  const hasProcessAttribution = attributedProcesses.length > 0;
   const topConsumers = hasProcessAttribution
-    ? [...processes].sort((a, b) => b.totalBytes - a.totalBytes).slice(0, 5)
+    ? [...attributedProcesses]
+        .filter(process => process.totalBytes > 0 || process.downloadBps > 0 || process.uploadBps > 0)
+        .sort((a, b) => b.totalBytes - a.totalBytes)
+        .slice(0, 5)
     : [];
-  const totalSessionData = processes.reduce((acc, p) => acc + p.totalBytes, 0);
+  const totalSessionData = attributedProcesses.reduce((acc, process) => acc + process.totalBytes, 0);
 
   return (
     <div className="space-y-3 p-3 w-full pb-16">
@@ -101,19 +98,20 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
         </div>
       </div>
 
-      {/* Per-process attribution is not measured yet; do not show sample throughput. */}
-      <div className="rounded-xl bg-slate-900/80 border border-amber-500/20 p-3 space-y-2">
+      <div className={`rounded-xl bg-slate-900/80 border ${hasProcessAttribution ? 'border-emerald-500/20' : 'border-amber-500/20'} p-3 space-y-2`}>
         <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+          <Zap className={`w-4 h-4 shrink-0 ${hasProcessAttribution ? 'text-emerald-400' : 'text-amber-400'}`} />
           <h3 className="text-xs font-semibold text-slate-100">Per-Application Traffic</h3>
         </div>
         <p className="text-xs text-slate-400 leading-relaxed">
-          Live interface throughput is measured from Windows network counters. Per-process peak rates and consumer rankings are unavailable until the ETW/WFP byte-attribution collector is implemented.
+          {hasProcessAttribution
+            ? 'Per-process byte counters are active. Rates and rankings use measured ETW samples collected while NetScope X is running.'
+            : 'Live interface throughput comes from Windows network counters. Per-app byte attribution is not currently active; enable Kernel Monitoring & Telemetry in Settings.'}
         </p>
         <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px]">
           <span className="text-slate-400">Per-app attribution</span>
-          <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-medium">
-            Not available
+          <span className={`px-2 py-0.5 rounded border font-medium ${hasProcessAttribution ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 'bg-amber-500/10 text-amber-300 border-amber-500/20'}`}>
+            {hasProcessAttribution ? 'Available' : 'Not available'}
           </span>
         </div>
       </div>
@@ -130,7 +128,12 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
           <span className="text-[11px] text-slate-500 font-mono">Past 12h</span>
         </div>
 
-        <div className="h-44 w-full pt-1">
+        {hourlyData.length === 0 ? (
+          <div className="h-44 flex items-center justify-center text-center text-[11px] text-slate-500 px-5">
+            Historical samples will appear here once traffic has been recorded.
+          </div>
+        ) : (
+          <div className="h-44 w-full pt-1">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={hourlyData} margin={{ top: 5, right: 5, left: -22, bottom: 0 }}>
               <XAxis dataKey="hour" stroke="#475569" fontSize={9} tickLine={false} />
@@ -152,7 +155,8 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
               <Bar dataKey="upMB" fill="#2dd4bf" radius={[3, 3, 0, 0]} name="Upload" />
             </BarChart>
           </ResponsiveContainer>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* 4. Top Bandwidth Consumers Ranking */}
@@ -163,8 +167,12 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
         </div>
 
         <div className="space-y-2">
-          {!hasProcessAttribution ? (
-            <p className="text-xs text-slate-400">No per-application byte counters are available yet. Interface history below is measured from Windows.</p>
+          {!hasProcessAttribution || topConsumers.length === 0 ? (
+            <p className="text-xs text-slate-400">
+              {hasProcessAttribution
+                ? 'The ETW collector is active; per-app totals will appear after traffic is attributed to a process.'
+                : 'No per-application byte counters are available yet. Interface history below is measured from Windows.'}
+            </p>
           ) : topConsumers.map((proc, index) => {
             const share = totalSessionData > 0 ? (proc.totalBytes / totalSessionData) * 100 : 0;
             return (

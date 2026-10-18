@@ -9,7 +9,7 @@ on:
       tag_name:
         description: 'Tag name for manual release (e.g. v0.0.3)'
         required: false
-        default: 'v0.0.4'
+        default: 'v0.0.5'
 
 concurrency:
   group: release-${{ github.ref }}

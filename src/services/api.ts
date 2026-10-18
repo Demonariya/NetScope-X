@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { normalizePingResult } from '../utils/normalizers';
 import {
   NetworkAdapter,
@@ -41,6 +40,21 @@ async function httpJson<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(`Request failed (${response.status})${detail ? `: ${detail}` : ''}`);
   }
   return response.json() as Promise<T>;
+}
+
+async function httpText(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    let detail = '';
+    try { detail = (await response.text()).trim(); } catch {}
+    throw new Error(`Request failed (${response.status})${detail ? `: ${detail}` : ''}`);
+  }
+  return response.text();
+}
+
+async function runNativeWindowAction(action: 'minimize' | 'restore' | 'hide'): Promise<void> {
+  const success = await nativeCommand<boolean>('system_tray_action', { action });
+  if (!success) throw new Error(`The native backend did not complete window action "${action}".`);
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -146,6 +160,11 @@ export const api = {
     return httpJson<TrafficHistoryRecord[]>(`/api/history?range=${encodeURIComponent(range)}`);
   },
 
+  async exportHistory(format: 'csv' | 'json', range: 'today' | '7d' | '30d' | 'all' = 'today'): Promise<string> {
+    if (isTauri) return nativeCommand<string>('export_traffic_history', { format, range });
+    return httpText(`/api/export/${format}?range=${encodeURIComponent(range)}`);
+  },
+
   async getSettings(): Promise<AppSettings> {
     if (isTauri) return nativeCommand<AppSettings>('get_settings');
     return httpJson<AppSettings>('/api/settings');
@@ -197,21 +216,15 @@ export const api = {
   },
 
   async minimizeWindow(): Promise<void> {
-    if (!isTauri) throw new Error('Window controls are available only in the desktop application.');
-    await getCurrentWindow().minimize();
+    await runNativeWindowAction('minimize');
   },
 
   async hideWindow(): Promise<void> {
-    if (!isTauri) throw new Error('The system tray is available only in the desktop application.');
-    await getCurrentWindow().hide();
+    await runNativeWindowAction('hide');
   },
 
   async restoreWindow(): Promise<void> {
-    if (!isTauri) throw new Error('Window controls are available only in the desktop application.');
-    const window = getCurrentWindow();
-    await window.show();
-    await window.unminimize();
-    await window.setFocus();
+    await runNativeWindowAction('restore');
   },
 
   async exitApp(): Promise<void> {

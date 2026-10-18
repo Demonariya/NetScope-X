@@ -19,19 +19,24 @@ import {
 } from 'recharts';
 import { TrafficHistoryRecord } from '../../types/network';
 import { formatBytes } from '../../utils/formatters';
+import { api } from '../../services/api';
 
 interface HistoryTabProps {
   history: TrafficHistoryRecord[];
+  historyRange: 'today' | '7d' | '30d' | 'all';
+  onRangeChange: (range: 'today' | '7d' | '30d' | 'all') => void;
   onClearHistory: () => void;
-  onShowToast: (title: string, message?: string) => void;
+  onShowToast: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const HistoryTab: React.FC<HistoryTabProps> = ({
   history,
+  historyRange,
+  onRangeChange,
   onClearHistory,
   onShowToast,
 }) => {
-  const [dateRange, setDateRange] = useState<'today' | '7d' | '30d' | 'all'>('today');
+  const dateRange = historyRange;
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Compute totals
@@ -42,25 +47,33 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
   // Format chart data
   const chartData = history.map(item => ({
     time: item.hourStr,
-    downMB: Math.round(item.downloadBytes / (1024 * 1024)),
-    upMB: Math.round(item.uploadBytes / (1024 * 1024)),
+    downMB: Math.round((item.downloadBytes / (1024 * 1024)) * 10) / 10,
+    upMB: Math.round((item.uploadBytes / (1024 * 1024)) * 10) / 10,
     topApp: item.topApp,
   }));
 
-  const handleExportCsv = () => {
-    window.location.href = '/api/export/csv';
-    onShowToast('CSV Export Initiated', 'netscope_traffic_export.csv is downloading');
-  };
-
-  const handleExportJson = () => {
-    window.location.href = '/api/export/json';
-    onShowToast('JSON Export Initiated', 'netscope_traffic_export.json is downloading');
+  const handleExport = async (format: 'csv' | 'json') => {
+    try {
+      const content = await api.exportHistory(format, dateRange);
+      const filename = `netscope_traffic_${dateRange}_${new Date().toISOString().replace(/[:.]/g, '-')}${format === 'csv' ? '.csv' : '.json'}`;
+      const mimeType = format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8';
+      const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      onShowToast(`${format.toUpperCase()} Exported`, `${filename} was downloaded.`, 'success');
+    } catch (error) {
+      onShowToast('Export Failed', error instanceof Error ? error.message : String(error), 'error');
+    }
   };
 
   const handleConfirmClear = () => {
     onClearHistory();
     setShowClearConfirm(false);
-    onShowToast('Database Pruned', 'Session history has been reset');
   };
 
   return (
@@ -78,7 +91,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
           {/* Export & Clear Buttons */}
           <div className="flex items-center gap-1.5 shrink-0">
             <button
-              onClick={handleExportCsv}
+              onClick={() => { void handleExport('csv'); }}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded transition-colors"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
@@ -86,7 +99,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
             </button>
 
             <button
-              onClick={handleExportJson}
+              onClick={() => { void handleExport('json'); }}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded transition-colors"
             >
               <FileJson className="w-3.5 h-3.5 text-sky-400" />
@@ -109,7 +122,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
           {(['today', '7d', '30d', 'all'] as const).map(range => (
             <button
               key={range}
-              onClick={() => setDateRange(range)}
+              onClick={() => onRangeChange(range)}
               className={`px-2 py-0.5 rounded capitalize whitespace-nowrap transition-all ${
                 dateRange === range
                   ? 'bg-slate-800 text-sky-400 font-semibold'
@@ -183,49 +196,49 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         <h3 className="text-xs font-semibold text-slate-100 mb-2">
           Usage Timeline (Megabytes)
         </h3>
-        <div className="h-40 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -22, bottom: 0 }}>
-              <defs>
-                <linearGradient id="histDown" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="time" stroke="#475569" fontSize={9} tickLine={false} />
-              <YAxis stroke="#475569" fontSize={9} tickLine={false} tickFormatter={val => `${val}M`} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: '#090d16',
-                  borderColor: '#334155',
-                  borderRadius: '8px',
-                  fontSize: '11px',
-                }}
-                labelStyle={{ color: '#94a3b8' }}
-              />
-              <Area
-                type="monotone"
-                dataKey="downMB"
-                stroke="#38bdf8"
-                strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#histDown)"
-                name="Download (MB)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
+        {chartData.length === 0 ? (
+          <div className="h-40 flex items-center justify-center text-center text-[11px] text-slate-500 px-5">
+            No saved traffic for this period yet. Keep monitoring enabled to collect hourly totals.
+          </div>
+        ) : (
+          <div className="h-40 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -22, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="histDown" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="histUp" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#2dd4bf" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#2dd4bf" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="time" stroke="#475569" fontSize={9} tickLine={false} />
+                <YAxis stroke="#475569" fontSize={9} tickLine={false} tickFormatter={val => `${val}M`} />
+                <Tooltip contentStyle={{ backgroundColor: '#090d16', borderColor: '#334155', borderRadius: '8px', fontSize: '11px' }} labelStyle={{ color: '#94a3b8' }}
+                  formatter={(value, name) => [`${value} MB`, name === 'downMB' ? 'Download' : 'Upload']} />
+                <Area type="monotone" dataKey="downMB" stroke="#38bdf8" strokeWidth={2} fillOpacity={1} fill="url(#histDown)" name="Download (MB)" />
+                <Area type="monotone" dataKey="upMB" stroke="#2dd4bf" strokeWidth={2} fillOpacity={1} fill="url(#histUp)" name="Upload (MB)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       {/* Hourly History Table */}
       <div className="rounded-xl border border-slate-800/80 bg-slate-900/70 overflow-hidden shadow-sm">
         <div className="px-3 py-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-          <span>Time & Top Application</span>
+          <span>Time & Interface</span>
           <span>Transfer (Down / Up)</span>
         </div>
 
         <div className="divide-y divide-slate-800/50 max-h-56 overflow-y-auto">
-          {history.map(item => (
+          {history.length === 0 ? (
+            <div className="px-3 py-5 text-center text-[11px] text-slate-500">
+              No recorded traffic in the selected period.
+            </div>
+          ) : history.map(item => (
             <div
               key={item.id}
               className="p-2.5 flex items-center justify-between text-xs hover:bg-slate-800/30 transition-colors gap-2"

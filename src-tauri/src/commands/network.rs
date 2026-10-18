@@ -7,7 +7,7 @@ use tauri::command;
 pub async fn get_network_adapters() -> Result<Vec<NetworkAdapter>, String> {
     tauri::async_runtime::spawn_blocking(NetworkAdapter::discover_all)
         .await
-        .map_err(|error| format!("Network adapter worker failed: {error}"))
+        .map_err(|error| format!("Network adapter worker failed: {error}"))?
 }
 
 #[command]

@@ -30,7 +30,7 @@ $tcpRows = @(
   Get-NetTCPConnection -ErrorAction SilentlyContinue | ForEach-Object {
     $pidValue = [int]$_.OwningProcess
     $key = [string]$pidValue
-    $processName = if ($processNames.ContainsKey($key)) { $processNames[$key] } else { "PID $pidValue" }
+    $processName = if ($pidValue -eq 0) { 'Unattributed' } elseif ($processNames.ContainsKey($key)) { $processNames[$key] } else { "PID $pidValue" }
     $state = switch ([string]$_.State) {
       'Established' { 'ESTABLISHED' }
       'Listen' { 'LISTENING' }
@@ -62,7 +62,7 @@ $udpRows = @(
   Get-NetUDPEndpoint -ErrorAction SilentlyContinue | ForEach-Object {
     $pidValue = [int]$_.OwningProcess
     $key = [string]$pidValue
-    $processName = if ($processNames.ContainsKey($key)) { $processNames[$key] } else { "PID $pidValue" }
+    $processName = if ($pidValue -eq 0) { 'Unattributed' } elseif ($processNames.ContainsKey($key)) { $processNames[$key] } else { "PID $pidValue" }
     [pscustomobject]@{
       id = "udp-$pidValue-$($_.LocalAddress)-$($_.LocalPort)"
       protocol = 'UDP'
