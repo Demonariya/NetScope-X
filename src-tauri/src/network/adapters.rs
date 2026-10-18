@@ -74,7 +74,13 @@ $rows = @(
     Where-Object { $_.Status -ne 'Not Present' } |
     ForEach-Object {
       $adapter = $_
-      $ip = Get-NetIPConfiguration -InterfaceIndex $adapter.ifIndex -ErrorAction SilentlyContinue
+      $ip = $null
+      try {
+        # A virtual adapter may disappear after enumeration; keep the rest of the list usable.
+        $ip = Get-NetIPConfiguration -InterfaceIndex ([int]$adapter.ifIndex) -ErrorAction Stop
+      } catch {
+        $ip = $null
+      }
       $kind = 'ethernet'
       if ($adapter.InterfaceDescription -match 'Wi-?Fi|Wireless|802\.11') { $kind = 'wifi' }
       elseif ($adapter.Name -match 'loopback') { $kind = 'loopback' }
