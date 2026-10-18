@@ -7,9 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag name for manual release (e.g. v0.0.3)'
-        required: false
-        default: 'v0.0.6'
+        description: 'Exact tag approved for release; do not run until release approval is given.'
+        required: true
 
 concurrency:
   group: release-${{ github.ref }}

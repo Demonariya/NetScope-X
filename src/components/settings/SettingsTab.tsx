@@ -319,18 +319,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             />
           </div>
 
-          <div className="flex items-center justify-between py-1 gap-2">
-            <div>
-              <span className="font-medium text-slate-200 block">Tray Tooltip Speeds</span>
-              <span className="text-[11px] text-slate-400">Show current upload/download rates in tray hover card</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={localSettings.startup.showTraySpeedTooltip}
-              onChange={() => handleToggle(['startup', 'showTraySpeedTooltip'])}
-              className="accent-sky-500 w-4 h-4 cursor-pointer shrink-0"
-            />
-          </div>
         </div>
       </div>
 

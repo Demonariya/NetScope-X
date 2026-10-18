@@ -3,11 +3,12 @@ use crate::settings::persistence::SettingsPersistence;
 use crate::AppRuntimeState;
 use tauri::{command, AppHandle, Emitter, Manager, Runtime};
 
-pub fn apply_monitoring_state<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
-    app.state::<AppRuntimeState>()
-        .set_monitoring_enabled(enabled);
+pub fn apply_monitoring_state<R: Runtime>(app: &AppHandle<R>, enabled: bool, per_app_enabled: bool) {
+    let runtime = app.state::<AppRuntimeState>();
+    runtime.set_monitoring_enabled(enabled);
+    runtime.set_per_app_enabled(per_app_enabled);
 
-    if enabled {
+    if enabled && per_app_enabled {
         let session_name = format!("NetScopeX-{}", std::process::id());
         if let Err(error) = crate::monitoring::etw::EtwSessionManager::start_session(&session_name)
         {
@@ -18,6 +19,28 @@ pub fn apply_monitoring_state<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
     }
 
     let _ = app.emit("monitoring-toggled", enabled);
+}
+
+#[cfg(windows)]
+fn sync_windows_startup(enabled: bool) -> Result<(), String> {
+    let key = r"HKCU:\Software\Microsoft\Windows\CurrentVersion\Run";
+    if enabled {
+        let executable = std::env::current_exe()
+            .map_err(|error| format!("Cannot resolve the current executable path: {error}"))?;
+        let executable = executable.to_string_lossy().replace('\'', "''");
+        let script = format!(
+            "$ErrorActionPreference = 'Stop'\n$key = '{key}'\nNew-Item -Path $key -Force | Out-Null\n$exe = '{executable}'\nNew-ItemProperty -Path $key -Name 'NetScopeX' -Value ('\"' + $exe + '\"') -PropertyType String -Force | Out-Null"
+        );
+        crate::windows_utils::run_powershell(&script).map(|_| ())
+    } else {
+        let script = "$ErrorActionPreference = 'Stop'\n$key = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'\nif (Test-Path -LiteralPath $key) { Remove-ItemProperty -LiteralPath $key -Name 'NetScopeX' -ErrorAction SilentlyContinue }";
+        crate::windows_utils::run_powershell(script).map(|_| ())
+    }
+}
+
+#[cfg(not(windows))]
+fn sync_windows_startup(_enabled: bool) -> Result<(), String> {
+    Ok(())
 }
 
 fn settings_file<R: Runtime>(app: &AppHandle<R>) -> Result<std::path::PathBuf, String> {
@@ -37,7 +60,10 @@ pub async fn get_settings(app: AppHandle) -> Result<AppConfig, String> {
         let settings = SettingsPersistence::load_or_default(path);
         app.state::<AppRuntimeState>()
             .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
-        apply_monitoring_state(&app, settings.monitoring.enabled);
+        apply_monitoring_state(&app, settings.monitoring.enabled, settings.monitoring.per_app_enabled);
+        if let Err(error) = sync_windows_startup(settings.startup.start_with_windows) {
+            eprintln!("NetScope X could not synchronize Windows startup registration: {error}");
+        }
         Ok(settings)
     })
     .await
@@ -52,7 +78,9 @@ pub async fn save_settings(app: AppHandle, settings: AppConfig) -> Result<bool, 
             .map_err(|error| format!("Could not save application settings: {error}"))?;
         app.state::<AppRuntimeState>()
             .set_minimize_to_tray_on_close(settings.startup.minimize_to_tray_on_close);
-        apply_monitoring_state(&app, settings.monitoring.enabled);
+        apply_monitoring_state(&app, settings.monitoring.enabled, settings.monitoring.per_app_enabled);
+        sync_windows_startup(settings.startup.start_with_windows)
+            .map_err(|error| format!("Settings were saved, but Windows startup registration failed: {error}"))?;
         Ok(true)
     })
     .await
@@ -61,8 +89,9 @@ pub async fn save_settings(app: AppHandle, settings: AppConfig) -> Result<bool, 
 
 #[command]
 pub async fn set_monitoring_enabled(app: AppHandle, enabled: bool) -> Result<bool, String> {
+    let per_app_enabled = app.state::<AppRuntimeState>().is_per_app_enabled();
     tauri::async_runtime::spawn_blocking(move || {
-        apply_monitoring_state(&app, enabled);
+        apply_monitoring_state(&app, enabled, per_app_enabled);
         enabled
     })
     .await
@@ -103,10 +132,13 @@ pub async fn system_tray_action(app: AppHandle, action: String) -> Result<bool, 
                 .map_err(|error| format!("Could not focus NetScope X: {error}"))?;
         }
         "toggle_monitor" => {
-            let enabled = app.state::<AppRuntimeState>().toggle_monitoring();
+            let (enabled, per_app_enabled) = {
+                let runtime = app.state::<AppRuntimeState>();
+                (runtime.toggle_monitoring(), runtime.is_per_app_enabled())
+            };
             let worker_app = app.clone();
             tauri::async_runtime::spawn_blocking(move || {
-                apply_monitoring_state(&worker_app, enabled);
+                apply_monitoring_state(&worker_app, enabled, per_app_enabled);
             })
             .await
             .map_err(|error| format!("Tray monitoring worker failed: {error}"))?;

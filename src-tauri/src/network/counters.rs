@@ -21,21 +21,64 @@ impl InterfaceCounters {
             return Err("Invalid network interface ID.".to_string());
         }
         let script_id = adapter_id.to_string();
-        let script = format!(
-            r#"
-$requestedId = '{script_id}'
-if ($requestedId -eq 'auto') {{
-  $config = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
-    Where-Object {{ $_.IPv4DefaultGateway -or $_.IPv6DefaultGateway }} |
-    Select-Object -First 1
-  if ($null -eq $config) {{ throw 'No active default-route network adapter was found.' }}
-  $adapter = Get-NetAdapter -InterfaceIndex $config.InterfaceIndex -ErrorAction Stop
-}} else {{
-  $adapter = Get-NetAdapter -InterfaceIndex ([int]$requestedId) -ErrorAction Stop
-}}
-$stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction Stop
-[pscustomobject]@{{
-  adapterId = [string]$adapter.ifIndex
+        let script = r#"
+$ErrorActionPreference = 'Stop'
+$requestedId = '__NETSCOPE_REQUESTED_ID__'
+$adapters = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop | Where-Object { $_.Status -ne 'Not Present' })
+if ($adapters.Count -eq 0) { throw 'Windows did not return any network adapters.' }
+
+$configByIndex = @{}
+try {
+  $ipConfigurations = @(Get-NetIPConfiguration -ErrorAction SilentlyContinue 2>$null)
+} catch {
+  $ipConfigurations = @()
+}
+foreach ($config in $ipConfigurations) {
+  if ($null -ne $config -and $null -ne $config.InterfaceIndex) {
+    $configByIndex[[string]$config.InterfaceIndex] = $config
+  }
+}
+
+if ($requestedId -ne 'auto') {
+  $adapter = $adapters | Where-Object { [string]$_.ifIndex -eq $requestedId } | Select-Object -First 1
+  if ($null -eq $adapter) {
+    throw "Selected interface $requestedId no longer exists. Refresh adapters or choose Auto Select."
+  }
+  $candidates = @($adapter)
+} else {
+  $candidates = @(
+    $adapters |
+      Sort-Object @{
+        Expression = {
+          $configuration = $configByIndex[[string]$_.ifIndex]
+          if ($null -ne $configuration -and (@($configuration.IPv4DefaultGateway | Where-Object { $_.NextHop }).Count -gt 0 -or @($configuration.IPv6DefaultGateway | Where-Object { $_.NextHop }).Count -gt 0)) { 0 } else { 1 }
+        }
+      }, @{
+        Expression = { if ($_.Status -eq 'Up') { 0 } else { 1 } }
+      }
+  )
+}
+
+$selectedAdapter = $null
+$stats = $null
+$lastFailure = ''
+foreach ($candidate in $candidates) {
+  try {
+    $candidateStats = Get-NetAdapterStatistics -Name $candidate.Name -ErrorAction Stop
+    $selectedAdapter = $candidate
+    $stats = $candidateStats
+    break
+  } catch {
+    $lastFailure = [string]$_.Exception.Message
+    if ($requestedId -ne 'auto') { break }
+  }
+}
+if ($null -eq $selectedAdapter -or $null -eq $stats) {
+  if ([string]::IsNullOrWhiteSpace($lastFailure)) { $lastFailure = 'Windows could not read adapter statistics.' }
+  throw "No usable network adapter was found. $lastFailure"
+}
+[pscustomobject]@{
+  adapterId = [string]$selectedAdapter.ifIndex
   bytesReceived = [uint64]$stats.ReceivedBytes
   bytesSent = [uint64]$stats.SentBytes
   packetsReceived = [uint64]$stats.ReceivedUnicastPackets
@@ -43,9 +86,8 @@ $stats = Get-NetAdapterStatistics -Name $adapter.Name -ErrorAction Stop
   errorsIn = [uint32]$stats.ReceivedPacketErrors
   errorsOut = [uint32]$stats.OutboundPacketErrors
   timestampMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-}} | ConvertTo-Json -Compress
-"#
-        );
+} | ConvertTo-Json -Compress
+"#.replace("__NETSCOPE_REQUESTED_ID__", &script_id);
         let json = crate::windows_utils::run_powershell(&script)?;
         serde_json::from_str::<Self>(&json)
             .map_err(|error| format!("Invalid interface counters JSON: {error}"))

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { TitleBar } from './components/layout/TitleBar';
 import { Navigation, TabType } from './components/layout/Navigation';
@@ -71,7 +71,7 @@ export default function App() {
     };
 
     applyTheme();
-    localStorage.setItem('netscope_theme', theme);
+    try { localStorage.setItem('netscope_theme', theme); } catch { /* Preferences are optional. */ }
 
     if (theme === 'system') {
       const mql = window.matchMedia('(prefers-color-scheme: dark)');
@@ -112,6 +112,7 @@ export default function App() {
   const [liveStats, setLiveStats] = useState<NetworkStats | null>(null);
   const [activePingTarget, setActivePingTarget] = useState<string>('1.1.1.1');
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
+  const pingAttemptsRef = useRef<{ target: string; status: PingResult['status']; latencyMs: number }[]>([]);
   const [processes, setProcesses] = useState<ProcessNetworkUsage[]>([]);
   const [connections, setConnections] = useState<SocketConnection[]>([]);
   const [history, setHistory] = useState<TrafficHistoryRecord[]>([]);
@@ -131,9 +132,45 @@ export default function App() {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
+  // Aggregate actual TCP connection probes; failed attempts are not treated as 0 ms.
+  const recordPingAttempt = (result: PingResult) => {
+    const previous = pingAttemptsRef.current;
+    const sameTarget = previous.length > 0 && previous[previous.length - 1].target === result.target;
+    const attempts = [
+      ...(sameTarget ? previous : []),
+      { target: result.target, status: result.status, latencyMs: result.latencyMs },
+    ].slice(-20);
+    pingAttemptsRef.current = attempts;
+    const successful = attempts
+      .filter(attempt => attempt.status === 'success' && Number.isFinite(attempt.latencyMs))
+      .map(attempt => attempt.latencyMs);
+    const jitter = successful.length > 1
+      ? successful.slice(1).reduce((sum, value, index) => sum + Math.abs(value - successful[index]), 0) / (successful.length - 1)
+      : 0;
+    const failures = attempts.length
+      ? (attempts.filter(attempt => attempt.status !== 'success').length / attempts.length) * 100
+      : 0;
+    setPingResult({
+      ...result,
+      minLatencyMs: successful.length ? Math.min(...successful) : 0,
+      maxLatencyMs: successful.length ? Math.max(...successful) : 0,
+      avgLatencyMs: successful.length ? successful.reduce((sum, value) => sum + value, 0) / successful.length : 0,
+      jitterMs: jitter,
+      packetLossPercent: failures,
+      history: successful,
+    });
+  };
+
   // Initial Data Fetch — a failed subsystem must not fabricate data or block other tabs.
   useEffect(() => {
     async function init() {
+      if (!isTauri) {
+        setSettings(DEFAULT_SETTINGS);
+        setIsMonitoring(false);
+        addToast('Windows Desktop Runtime Required', 'Live telemetry is available only in the packaged Tauri app. Demo data is disabled.', 'info');
+        return;
+      }
+
       const safeLoad = async <T,>(operation: Promise<T>, fallback: T, label: string): Promise<T> => {
         try {
           return await operation;
@@ -156,7 +193,8 @@ export default function App() {
 
       setAdapters(adp);
       setLiveStats(st);
-      setPingResult(png);
+      if (png) recordPingAttempt(png);
+      else setPingResult(null);
       setProcesses(procs);
       setConnections(procs.flatMap(process => process.connections ?? []));
       setHistory(hist);
@@ -187,7 +225,7 @@ export default function App() {
 
   // Sample interface counters frequently, but never let slow OS queries overlap.
   useEffect(() => {
-    if (!isMonitoring) return;
+    if (!isTauri || !isMonitoring) return;
 
     let inFlight = false;
     let cancelled = false;
@@ -248,7 +286,7 @@ export default function App() {
 
   // The backend refreshes SQLite history while either traffic-related tab is visible.
   useEffect(() => {
-    if (activeTab !== 'traffic' && activeTab !== 'history') return;
+    if (!isTauri || (activeTab !== 'traffic' && activeTab !== 'history')) return;
     let inFlight = false;
     let cancelled = false;
     const refreshHistory = async () => {
@@ -282,7 +320,7 @@ export default function App() {
       inFlight = true;
       try {
         const result = await api.getPing(activePingTarget);
-        if (!cancelled) setPingResult(result);
+        if (!cancelled) recordPingAttempt(result);
       } catch (error) {
         console.warn('Ping probe failed:', error);
       } finally {
@@ -320,7 +358,7 @@ export default function App() {
     setActivePingTarget(cleanTarget);
     try {
       const res = await api.getPing(cleanTarget);
-      setPingResult(res);
+      recordPingAttempt(res);
       setSettings(prev =>
         prev
           ? {
@@ -329,7 +367,13 @@ export default function App() {
             }
           : prev
       );
-      addToast('Ping Probe Switched', `Target: ${cleanTarget} (${formatLatency(res.latencyMs)})`, 'success');
+      addToast(
+        res.status === 'success' ? 'TCP Probe Switched' : 'TCP Probe Failed',
+        res.status === 'success'
+          ? `Target: ${cleanTarget} (${formatLatency(res.latencyMs)})`
+          : `Could not establish a TCP connection to ${cleanTarget}:443 (${res.status}).`,
+        res.status === 'success' ? 'success' : 'error'
+      );
     } catch {
       addToast('Probe Failed', `Could not reach ${cleanTarget}`, 'error');
     }
@@ -482,9 +526,13 @@ export default function App() {
 
   // Native desktop controls — these change the actual Tauri window instead of only showing a toast.
   const handleToggleMonitoring = async () => {
+    if (!isTauri) {
+      addToast('Windows Desktop Runtime Required', 'Monitoring controls work only in the packaged Tauri app.', 'info');
+      return;
+    }
     const next = !isMonitoring;
     try {
-      if (isTauri) await api.setMonitoringEnabled(next);
+      await api.setMonitoringEnabled(next);
       setIsMonitoring(next);
       addToast(next ? 'Monitoring Resumed' : 'Monitoring Paused', next ? 'Live system sampling resumed.' : 'Live system sampling paused.', 'info');
     } catch (error) {

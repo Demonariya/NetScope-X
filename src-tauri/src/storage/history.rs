@@ -45,6 +45,11 @@ impl HistoryStorage {
         rows.collect()
     }
 
+    /// Delete hourly records older than the configured retention cutoff date.
+    pub fn prune_before_date(conn: &Connection, cutoff_date: &str) -> Result<usize> {
+        conn.execute("DELETE FROM hourly_traffic WHERE date_str < ?1", [cutoff_date])
+    }
+
     pub fn insert_entry(conn: &Connection, entry: &TrafficHistoryEntry) -> Result<()> {
         conn.execute(
             "INSERT OR REPLACE INTO hourly_traffic (id, timestamp, date_str, hour_str, download_bytes, upload_bytes, top_app)

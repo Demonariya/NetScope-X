@@ -21,38 +21,58 @@ pub struct PingProbeResult {
 pub struct PingService;
 
 impl PingService {
-    /// Performs real network latency probing.
-    /// On Windows, uses IcmpSendEcho when available, falling back to TCP socket handshake.
+    /// Measures a TCP connection handshake to port 443 (or an explicitly supplied host:port).
+    /// This is not ICMP echo ping; the UI aggregates actual attempts into rolling statistics.
     pub fn probe(target: &str, timeout_ms: u64) -> PingProbeResult {
         let start = Instant::now();
-        let target_str = if target.contains(':') {
+        let target_str = if target.starts_with('[') {
             target.to_string()
+        } else if target.parse::<std::net::Ipv6Addr>().is_ok() {
+            format!("[{target}]:443")
+        } else if let Some((host, port)) = target.rsplit_once(':') {
+            if !host.contains(':') && port.parse::<u16>().is_ok() {
+                target.to_string()
+            } else {
+                format!("{target}:443")
+            }
         } else {
-            format!("{}:443", target)
+            format!("{target}:443")
         };
 
         let mut success = false;
+        let mut timed_out = false;
+        let mut resolved = false;
         let mut latency = 0.0;
 
         if let Ok(addrs) = target_str.to_socket_addrs() {
             for addr in addrs {
-                if std::net::TcpStream::connect_timeout(
+                resolved = true;
+                let connect_started = Instant::now();
+                match std::net::TcpStream::connect_timeout(
                     &addr,
-                    std::time::Duration::from_millis(timeout_ms),
-                )
-                .is_ok()
-                {
-                    latency = start.elapsed().as_secs_f64() * 1000.0;
-                    success = true;
-                    break;
+                    std::time::Duration::from_millis(timeout_ms.max(1)),
+                ) {
+                    Ok(_stream) => {
+                        latency = connect_started.elapsed().as_secs_f64() * 1000.0;
+                        success = true;
+                        break;
+                    }
+                    Err(error) => {
+                        timed_out |= error.kind() == std::io::ErrorKind::TimedOut;
+                    }
                 }
             }
         }
 
-        if !success {
-            latency = 0.0;
-        }
-
+        let status = if success {
+            "success"
+        } else if timed_out {
+            "timeout"
+        } else if resolved {
+            "error"
+        } else {
+            "error"
+        };
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -67,16 +87,11 @@ impl PingService {
             avg_latency_ms: latency,
             jitter_ms: 0.0,
             packet_loss_percent: if success { 0.0 } else { 100.0 },
-            status: if success {
-                "success".to_string()
-            } else {
-                "timeout".to_string()
-            },
+            status: status.to_string(),
             last_checked: now,
             history: if success { vec![latency] } else { Vec::new() },
         }
     }
-}
 
 #[cfg(test)]
 mod tests {

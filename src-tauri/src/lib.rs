@@ -13,6 +13,7 @@ use tauri::Manager;
 
 pub struct AppRuntimeState {
     monitoring_enabled: AtomicBool,
+    per_app_enabled: AtomicBool,
     minimize_to_tray_on_close: AtomicBool,
 }
 
@@ -20,6 +21,7 @@ impl Default for AppRuntimeState {
     fn default() -> Self {
         Self {
             monitoring_enabled: AtomicBool::new(true),
+            per_app_enabled: AtomicBool::new(true),
             minimize_to_tray_on_close: AtomicBool::new(true),
         }
     }
@@ -28,6 +30,14 @@ impl Default for AppRuntimeState {
 impl AppRuntimeState {
     pub fn is_monitoring_enabled(&self) -> bool {
         self.monitoring_enabled.load(Ordering::SeqCst)
+    }
+
+    pub fn is_per_app_enabled(&self) -> bool {
+        self.per_app_enabled.load(Ordering::SeqCst)
+    }
+
+    pub fn set_per_app_enabled(&self, enabled: bool) {
+        self.per_app_enabled.store(enabled, Ordering::SeqCst);
     }
 
     pub fn minimize_to_tray_on_close(&self) -> bool {

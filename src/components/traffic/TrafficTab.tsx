@@ -22,7 +22,7 @@ interface TrafficTabProps {
 }
 
 export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) => {
-  // Compute TCP vs UDP estimates based on active sockets
+  // These percentages represent live endpoint counts, not bandwidth volume.
   const totalConns = processes.reduce((acc, p) => acc + (p.connections?.length || 0), 0);
   const tcpConns = processes.reduce(
     (acc, p) => acc + (p.connections?.filter(c => c.protocol === 'TCP').length || 0),
@@ -58,14 +58,14 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
         <div className="flex items-center gap-2 mb-2.5">
           <PieIcon className="w-4 h-4 text-sky-400 shrink-0" />
           <h3 className="text-xs font-semibold text-slate-100">
-            Transport Layer Protocol Distribution
+            Active Socket Protocol Mix
           </h3>
         </div>
 
         <div className="space-y-2.5">
           <div>
             <div className="flex justify-between text-xs mb-1">
-              <span className="text-slate-300 font-medium">TCP (Reliable Stream)</span>
+              <span className="text-slate-300 font-medium">TCP connections</span>
               <span className="font-mono text-sky-400 font-semibold">{totalConns > 0 ? `${tcpPercent}%` : '--'}</span>
             </div>
             <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
@@ -78,7 +78,7 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
 
           <div>
             <div className="flex justify-between text-xs mb-1">
-              <span className="text-slate-300 font-medium">UDP (Real-Time Media/Voice)</span>
+              <span className="text-slate-300 font-medium">UDP endpoints</span>
               <span className="font-mono text-teal-400 font-semibold">{totalConns > 0 ? `${udpPercent}%` : '--'}</span>
             </div>
             <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
@@ -90,7 +90,7 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
           </div>
 
           <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
-            <span>Attributed Sockets:</span>
+            <span>Observed Sockets:</span>
             <span className="font-mono text-slate-200 font-medium">
               {tcpConns} TCP / {udpConns} UDP
             </span>

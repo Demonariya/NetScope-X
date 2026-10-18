@@ -110,32 +110,21 @@ export interface AppSettings {
     perAppEnabled: boolean;
     adapterId: string; // 'auto' or specific adapter id
     updateIntervalMs: number;
-    showInactiveApps: boolean;
-    groupByExe: boolean;
   };
   diagnostics: {
-    pingTargets: { id: string; name: string; host: string }[];
     activePingTarget: string;
     pingIntervalMs: number;
-    pingTimeoutMs: number;
-    mode: 'icmp' | 'tcp';
   };
   startup: {
     startWithWindows: boolean;
-    launchMinimized: boolean;
     minimizeToTrayOnClose: boolean;
-    keepMonitoringInTray: boolean;
-    showTraySpeedTooltip: boolean;
   };
   storage: {
     dataRetentionDays: number;
-    autoPrune: boolean;
   };
   appearance: {
     theme: 'dark' | 'light' | 'system';
     accentColor: string;
-    defaultCanvasMode: 'portrait_9_16';
-    chartStyle: 'area' | 'line';
   };
 }
 

@@ -61,7 +61,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const latencyHistory = Array.isArray(pingResult?.history)
     ? pingResult.history.filter(value => typeof value === 'number' && Number.isFinite(value))
     : [];
-  const hasSuccessfulPing = pingResult?.status === 'success' && Number.isFinite(pingResult.latencyMs);
+  const lastProbeSucceeded = pingResult?.status === 'success' && Number.isFinite(pingResult.latencyMs);
+  const hasSuccessfulPing = latencyHistory.length > 0;
 
   // Filter chart history based on timeframe
   const filteredHistory = React.useMemo(() => {
@@ -334,7 +335,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* 4. Connection Quality & Latency Section */}
+      {/* 4. Connection TCP Connection Latency Section */}
       <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3">
         <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800/60">
           <div className="flex items-center gap-1.5">
@@ -368,10 +369,10 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-                Current Ping
+                Current TCP Latency
               </span>
               <span className={`text-[9px] px-1 py-0.2 rounded font-semibold uppercase ${
-                !hasSuccessfulPing
+                !lastProbeSucceeded
                   ? 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
                   : latencyMs < 40
                   ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
@@ -383,16 +384,16 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               </span>
             </div>
             <span className="text-xl font-bold font-mono text-emerald-400 tabular-nums block mt-0.5">
-              {pingResult ? (pingResult.status === 'success' ? formatLatency(latencyMs) : 'Timeout') : '--'}
+              {pingResult ? (pingResult.status === 'success' ? formatLatency(latencyMs) : pingResult.status === 'timeout' ? 'Timed out' : 'Failed') : '--'}
             </span>
           </div>
 
           <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-              Average Ping
+              Average TCP Latency
             </span>
             <span className="text-base font-semibold font-mono text-slate-200 tabular-nums block mt-1">
-              {pingResult ? (pingResult.status === 'success' ? formatLatency(avgLatencyMs) : 'Timeout') : '--'}
+              {hasSuccessfulPing ? formatLatency(avgLatencyMs) : '--'}
             </span>
           </div>
 
@@ -401,13 +402,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               Min / Max
             </span>
             <span className="text-xs font-semibold font-mono text-slate-200 tabular-nums block mt-1">
-              {pingResult ? (pingResult.status === 'success' ? `${minLatencyMs.toFixed(0)} / ${maxLatencyMs.toFixed(0)} ms` : 'Timeout') : '--'}
+              {hasSuccessfulPing ? `${minLatencyMs.toFixed(0)} / ${maxLatencyMs.toFixed(0)} ms` : '--'}
             </span>
           </div>
 
           <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-              Jitter / Loss
+              Jitter / Failed Probes
             </span>
             <span className="text-xs font-semibold font-mono text-sky-400 tabular-nums block mt-1">
               {hasSuccessfulPing ? `${formatJitter(jitterMs)} (${formatPercent(packetLossPercent)})` : '--'}
@@ -467,7 +468,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
             <input
               type="text"
-              placeholder="Probe hostname or IP (e.g. 1.1.1.1)..."
+              placeholder="TCP host (port 443), e.g. 1.1.1.1"
               value={customPingHost}
               onChange={e => setCustomPingHost(e.target.value)}
               className="w-full bg-transparent text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none font-mono"

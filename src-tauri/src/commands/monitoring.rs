@@ -1,6 +1,9 @@
 use crate::monitoring::collector::{LiveNetworkStats, MonitoringCollector};
 use crate::storage::database::Database;
 use crate::storage::history::{HistoryStorage, TrafficHistoryEntry};
+use crate::settings::{config::AppConfig, persistence::SettingsPersistence};
+use rusqlite::Connection;
+use std::sync::{Mutex, OnceLock};
 use tauri::{command, AppHandle, Manager};
 
 fn history_database_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -13,9 +16,41 @@ fn history_database_path(app: &AppHandle) -> Result<std::path::PathBuf, String> 
     Ok(directory.join("history.sqlite3"))
 }
 
+fn prune_history_if_needed(app: &AppHandle, connection: &Connection) -> Result<(), String> {
+    static LAST_PRUNE_KEY: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| format!("Cannot resolve settings directory for history retention: {error}"))?;
+    let settings = SettingsPersistence::load_or_default(config_dir.join("settings.json"));
+    let retention_days = settings.storage.data_retention_days.clamp(1, 365) as i64;
+    let today = chrono::Local::now().date_naive();
+    let cutoff = (today - chrono::Duration::days(retention_days))
+        .format("%Y-%m-%d")
+        .to_string();
+    let prune_key = format!("{retention_days}:{cutoff}");
+
+    let mut last_pruned = LAST_PRUNE_KEY
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .map_err(|_| "History-retention state is unavailable.".to_string())?;
+    if last_pruned.as_deref() == Some(prune_key.as_str()) {
+        return Ok(());
+    }
+
+    HistoryStorage::prune_before_date(connection, &cutoff)
+        .map_err(|error| format!("Could not prune expired traffic history: {error}"))?;
+    *last_pruned = Some(prune_key);
+    Ok(())
+}
+
 fn persist_hour_sample(app: &AppHandle, stats: &LiveNetworkStats) -> Result<(), String> {
     let database = Database::open(history_database_path(app)?)
         .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
+    if let Err(error) = prune_history_if_needed(app, database.connection()) {
+        eprintln!("NetScope X could not prune expired history: {error}");
+    }
     let entry = TrafficHistoryEntry {
         id: format!("{}-{}", stats.hour_key, stats.active_adapter_id),
         timestamp: stats.timestamp,

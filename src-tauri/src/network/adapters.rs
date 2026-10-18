@@ -69,6 +69,20 @@ impl NetworkAdapter {
         #[cfg(windows)]
         {
             let script = r#"
+$ipConfigurations = @()
+try {
+  $ipConfigurations = @(Get-NetIPConfiguration -ErrorAction SilentlyContinue 2>$null)
+} catch {
+  $ipConfigurations = @()
+}
+$ipByInterface = @{}
+foreach ($configuration in $ipConfigurations) {
+  try {
+    if ($null -ne $configuration -and $null -ne $configuration.InterfaceIndex) {
+      $ipByInterface[[string]$configuration.InterfaceIndex] = $configuration
+    }
+  } catch {}
+}
 $rows = @(
   Get-NetAdapter -IncludeHidden -ErrorAction Stop |
     Where-Object { $_.Status -ne 'Not Present' } |
@@ -76,8 +90,7 @@ $rows = @(
       $adapter = $_
       $ip = $null
       try {
-        # A virtual adapter may disappear after enumeration; keep the rest of the list usable.
-        $ip = Get-NetIPConfiguration -InterfaceIndex ([int]$adapter.ifIndex) -ErrorAction Stop
+        $ip = $ipByInterface[[string]$adapter.ifIndex]
       } catch {
         $ip = $null
       }
