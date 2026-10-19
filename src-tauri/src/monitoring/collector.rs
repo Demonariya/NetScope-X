@@ -47,6 +47,13 @@ struct TelemetryState {
 
 static TELEMETRY: OnceLock<Mutex<TelemetryState>> = OnceLock::new();
 
+fn reset_session_totals(state: &mut TelemetryState) {
+    for sample in state.adapters.values_mut() {
+        sample.session_download_bytes = 0;
+        sample.session_upload_bytes = 0;
+    }
+}
+
 #[derive(Default)]
 pub struct MonitoringCollector;
 
@@ -133,20 +140,43 @@ impl MonitoringCollector {
         })
     }
 
-    /// Reset app-measured totals while preserving OS counter baselines, preventing artificial spikes.
+    /// Reset session totals while preserving daily/hourly measurements and OS counter baselines.
     pub fn reset_session_counters() -> Result<(), String> {
         let mut state = TELEMETRY
             .get_or_init(|| Mutex::new(TelemetryState::default()))
             .lock()
             .map_err(|_| "Network telemetry state is unavailable.".to_string())?;
-        for sample in state.adapters.values_mut() {
-            sample.session_download_bytes = 0;
-            sample.session_upload_bytes = 0;
-            sample.daily_download_bytes = 0;
-            sample.daily_upload_bytes = 0;
-            sample.hourly_download_bytes = 0;
-            sample.hourly_upload_bytes = 0;
-        }
+        reset_session_totals(&mut state);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{reset_session_totals, AdapterSample, TelemetryState};
+
+    #[test]
+    fn resetting_session_preserves_daily_and_hourly_totals() {
+        let sample = AdapterSample {
+            session_download_bytes: 120,
+            session_upload_bytes: 45,
+            daily_download_bytes: 900,
+            daily_upload_bytes: 310,
+            hourly_download_bytes: 200,
+            hourly_upload_bytes: 85,
+            ..AdapterSample::default()
+        };
+        let mut state = TelemetryState::default();
+        state.adapters.insert("17".to_string(), sample);
+
+        reset_session_totals(&mut state);
+
+        let sample = state.adapters.get("17").expect("sample should remain");
+        assert_eq!(sample.session_download_bytes, 0);
+        assert_eq!(sample.session_upload_bytes, 0);
+        assert_eq!(sample.daily_download_bytes, 900);
+        assert_eq!(sample.daily_upload_bytes, 310);
+        assert_eq!(sample.hourly_download_bytes, 200);
+        assert_eq!(sample.hourly_upload_bytes, 85);
     }
 }

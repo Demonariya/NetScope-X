@@ -7,10 +7,19 @@ use tauri::{
 use crate::AppRuntimeState;
 
 fn restore_main_window<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+    let Some(window) = app.get_webview_window("main") else {
+        eprintln!("NetScope X could not restore the window: the main window was not found.");
+        return;
+    };
+
+    if let Err(error) = window.show() {
+        eprintln!("NetScope X: show main window from tray failed: {error}");
+    }
+    if let Err(error) = window.unminimize() {
+        eprintln!("NetScope X: unminimize main window from tray failed: {error}");
+    }
+    if let Err(error) = window.set_focus() {
+        eprintln!("NetScope X: focus main window from tray failed: {error}");
     }
 }
 
@@ -43,11 +52,21 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<TrayIcon<R>, tauri:
                     let runtime = app.state::<AppRuntimeState>();
                     (runtime.toggle_monitoring(), runtime.is_per_app_enabled())
                 };
-                crate::commands::settings::apply_monitoring_state(app, enabled, per_app_enabled);
+                let app_handle = app.clone();
+                let _task = tauri::async_runtime::spawn_blocking(move || {
+                    crate::commands::settings::apply_monitoring_state(
+                        &app_handle,
+                        enabled,
+                        per_app_enabled,
+                    );
+                });
             }
             "quit" => {
-                crate::monitoring::lifecycle::LifecycleManager::cleanup();
-                app.exit(0);
+                let app_handle = app.clone();
+                let _task = tauri::async_runtime::spawn_blocking(move || {
+                    crate::monitoring::lifecycle::LifecycleManager::cleanup();
+                    app_handle.exit(0);
+                });
             }
             _ => {}
         })

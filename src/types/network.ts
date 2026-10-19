@@ -1,3 +1,5 @@
+export type AdapterDiscoveryStatus = 'loading' | 'available' | 'empty' | 'error' | 'desktop-required';
+
 export type ConnectionType = 'wifi' | 'ethernet' | 'usb_tether' | 'cellular' | 'virtual' | 'loopback';
 
 export type AdapterStatus = 'connected' | 'disconnected' | 'connecting';

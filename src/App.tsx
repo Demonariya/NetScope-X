@@ -10,6 +10,7 @@ import { HistoryTab } from './components/history/HistoryTab';
 import { SettingsTab } from './components/settings/SettingsTab';
 import { ToastContainer, ToastMessage } from './components/common/Toast';
 import {
+  AdapterDiscoveryStatus,
   NetworkAdapter,
   NetworkStats,
   PingResult,
@@ -108,6 +109,7 @@ export default function App() {
 
   // Core telemetry state
   const [adapters, setAdapters] = useState<NetworkAdapter[]>([]);
+  const [adapterDiscoveryStatus, setAdapterDiscoveryStatus] = useState<AdapterDiscoveryStatus>('loading');
   const [selectedAdapterId, setSelectedAdapterId] = useState<string>('auto');
   const [liveStats, setLiveStats] = useState<NetworkStats | null>(null);
   const [activePingTarget, setActivePingTarget] = useState<string>('1.1.1.1');
@@ -165,6 +167,7 @@ export default function App() {
   useEffect(() => {
     async function init() {
       if (!isTauri) {
+        setAdapterDiscoveryStatus('desktop-required');
         setSettings(DEFAULT_SETTINGS);
         setIsMonitoring(false);
         addToast('Windows Desktop Runtime Required', 'Live telemetry is available only in the packaged Tauri app. Demo data is disabled.', 'info');
@@ -182,8 +185,16 @@ export default function App() {
         }
       };
 
+      const adapterRequest = api.getAdapters().then(found => {
+        setAdapterDiscoveryStatus(found.length > 0 ? 'available' : 'empty');
+        return found;
+      }).catch(error => {
+        setAdapterDiscoveryStatus('error');
+        throw error;
+      });
+
       const [adp, st, png, procs, hist, cfg] = await Promise.all([
-        safeLoad<NetworkAdapter[]>(api.getAdapters(), [], 'Network adapters'),
+        safeLoad<NetworkAdapter[]>(adapterRequest, [], 'Network adapters'),
         safeLoad<NetworkStats | null>(api.getLiveStats(selectedAdapterId), null, 'Network counters'),
         safeLoad<PingResult | null>(api.getPing(), null, 'Ping probe'),
         safeLoad<ProcessNetworkUsage[]>(api.getProcesses(), [], 'Process list'),
@@ -229,6 +240,7 @@ export default function App() {
 
     let inFlight = false;
     let cancelled = false;
+    let adapterRecoveryInFlight = false;
     const pollStats = async () => {
       if (inFlight || cancelled) return;
       inFlight = true;
@@ -241,7 +253,76 @@ export default function App() {
           return [...prev, { time, downBps: stats.downloadBps, upBps: stats.uploadBps }].slice(-120);
         });
       } catch (error) {
-        console.warn('Network counter sample failed:', error);
+        const detail = error instanceof Error ? error.message : String(error);
+        const selectedInterfaceDisappeared =
+          selectedAdapterId !== 'auto' &&
+          /Selected interface .* no longer exists/i.test(detail);
+
+        if (!selectedInterfaceDisappeared || adapterRecoveryInFlight) {
+          console.warn('Network counter sample failed:', error);
+          return;
+        }
+
+        adapterRecoveryInFlight = true;
+        try {
+          const discovered = await api.getAdapters();
+          if (cancelled) return;
+          setAdapters(discovered);
+          setAdapterDiscoveryStatus(discovered.length > 0 ? 'available' : 'empty');
+
+          if (discovered.some(adapter => adapter.id === selectedAdapterId)) {
+            console.warn('Selected adapter is still present, but its counters could not be read:', error);
+            return;
+          }
+
+          const lostAdapterId = selectedAdapterId;
+          setSelectedAdapterId('auto');
+          setLiveStats(null);
+          setSpeedHistory([]);
+          setSettings(prev =>
+            prev
+              ? { ...prev, monitoring: { ...prev.monitoring, adapterId: 'auto' } }
+              : prev
+          );
+
+          try {
+            const latestSettings = await api.getSettings();
+            const updatedSettings = {
+              ...latestSettings,
+              monitoring: { ...latestSettings.monitoring, adapterId: 'auto' },
+            };
+            await api.saveSettings(updatedSettings);
+            if (!cancelled) setSettings(updatedSettings);
+          } catch (saveError) {
+            if (!cancelled) {
+              addToast(
+                'Adapter Preference Not Saved',
+                saveError instanceof Error ? saveError.message : String(saveError),
+                'error'
+              );
+            }
+          }
+
+          if (!cancelled) {
+            addToast(
+              'Adapter Disconnected',
+              `Selected interface ${lostAdapterId} disappeared. Switched to Auto Select.`,
+              'info'
+            );
+          }
+        } catch (recoveryError) {
+          console.error('Could not refresh adapters after a stale adapter selection:', recoveryError);
+          if (!cancelled) {
+            setAdapterDiscoveryStatus('error');
+            addToast(
+              'Adapter Detection Failed',
+              recoveryError instanceof Error ? recoveryError.message : String(recoveryError),
+              'error'
+            );
+          }
+        } finally {
+          adapterRecoveryInFlight = false;
+        }
       } finally {
         inFlight = false;
       }
@@ -592,6 +673,7 @@ export default function App() {
           {activeTab === 'overview' && (
             <OverviewTab
               adapters={adapters}
+              adapterDiscoveryStatus={adapterDiscoveryStatus}
               selectedAdapterId={selectedAdapterId}
               onSelectAdapter={handleSelectAdapter}
               liveStats={liveStats}

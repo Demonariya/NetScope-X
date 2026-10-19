@@ -16,11 +16,12 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { NetworkAdapter, NetworkStats, PingResult } from '../../types/network';
+import { AdapterDiscoveryStatus, NetworkAdapter, NetworkStats, PingResult } from '../../types/network';
 import { formatBytes, formatSpeed, formatLatency, formatJitter, formatPercent } from '../../utils/formatters';
 
 interface OverviewTabProps {
   adapters: NetworkAdapter[];
+  adapterDiscoveryStatus: AdapterDiscoveryStatus;
   selectedAdapterId: string;
   onSelectAdapter: (id: string) => void;
   liveStats: NetworkStats | null;
@@ -33,6 +34,7 @@ interface OverviewTabProps {
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
   adapters,
+  adapterDiscoveryStatus,
   selectedAdapterId,
   onSelectAdapter,
   liveStats,
@@ -45,10 +47,17 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const [chartTimeframe, setChartTimeframe] = useState<'30s' | '60s' | '5m'>('30s');
   const [customPingHost, setCustomPingHost] = useState('');
 
-  const activeAdapter =
-    adapters.find(a => a.id === selectedAdapterId) ||
-    adapters.find(a => a.isDefault) ||
-    adapters[0];
+  const activeAdapter = selectedAdapterId === 'auto'
+    ? adapters.find(a => a.isDefault) || adapters.find(a => a.status === 'connected') || adapters[0]
+    : adapters.find(a => a.id === selectedAdapterId);
+
+  const adapterDescription = activeAdapter?.description || ({
+    loading: 'Detecting Windows network adapters…',
+    available: 'The selected adapter is not present in the current adapter list.',
+    empty: 'Windows did not report any network adapters.',
+    error: 'Adapter detection failed. Review the diagnostic notification for details.',
+    'desktop-required': 'Live adapter detection requires the Windows desktop application.',
+  } satisfies Record<AdapterDiscoveryStatus, string>)[adapterDiscoveryStatus];
 
   const downSpeed = formatSpeed(liveStats?.downloadBps || 0);
   const upSpeed = formatSpeed(liveStats?.uploadBps || 0);
@@ -111,7 +120,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 truncate">
-                {activeAdapter?.description || 'No Windows adapter data available'}
+                {adapterDescription}
               </p>
             </div>
           </div>

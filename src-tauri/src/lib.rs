@@ -63,9 +63,17 @@ pub fn run() {
         // Keep one desktop process/tray icon; subsequent launches restore the existing window.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
+                if let Err(error) = window.show() {
+                    eprintln!("NetScope X: show existing window on second launch failed: {error}");
+                }
+                if let Err(error) = window.unminimize() {
+                    eprintln!("NetScope X: unminimize existing window on second launch failed: {error}");
+                }
+                if let Err(error) = window.set_focus() {
+                    eprintln!("NetScope X: focus existing window on second launch failed: {error}");
+                }
+            } else {
+                eprintln!("NetScope X: second launch received but main window was not found.");
             }
         }))
         .manage(AppRuntimeState::default())
@@ -89,7 +97,12 @@ pub fn run() {
                             eprintln!("NetScope X could not hide to tray on close: {error}");
                         }
                     } else {
-                        crate::monitoring::lifecycle::LifecycleManager::cleanup();
+                        api.prevent_close();
+                        let app_handle = window.app_handle().clone();
+                        let _task = tauri::async_runtime::spawn_blocking(move || {
+                            crate::monitoring::lifecycle::LifecycleManager::cleanup();
+                            app_handle.exit(0);
+                        });
                     }
                 }
             }

@@ -359,8 +359,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             </div>
             <button
               onClick={() => {
-                onResetSession();
-                onShowToast('Session Reset', 'Session traffic counters set to 0 B');
+                void onResetSession();
               }}
               className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs transition-colors shrink-0"
             >

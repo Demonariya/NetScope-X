@@ -22,7 +22,9 @@ pub fn apply_monitoring_state<R: Runtime>(
         eprintln!("NetScope X could not stop per-process ETW telemetry: {error}");
     }
 
-    let _ = app.emit("monitoring-toggled", enabled);
+    if let Err(error) = app.emit("monitoring-toggled", enabled) {
+        eprintln!("NetScope X could not notify the frontend about monitoring state: {error}");
+    }
 }
 
 #[cfg(windows)]
@@ -37,7 +39,7 @@ fn sync_windows_startup(enabled: bool) -> Result<(), String> {
         );
         crate::windows_utils::run_powershell(&script).map(|_| ())
     } else {
-        let script = "$ErrorActionPreference = 'Stop'\n$key = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'\nif (Test-Path -LiteralPath $key) { Remove-ItemProperty -LiteralPath $key -Name 'NetScopeX' -ErrorAction SilentlyContinue }";
+        let script = "$ErrorActionPreference = 'Stop'\n$key = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'\nif (Test-Path -LiteralPath $key -ErrorAction Stop) { $properties = Get-ItemProperty -LiteralPath $key -ErrorAction Stop; if ($null -ne $properties.PSObject.Properties['NetScopeX']) { Remove-ItemProperty -LiteralPath $key -Name 'NetScopeX' -ErrorAction Stop } }";
         crate::windows_utils::run_powershell(script).map(|_| ())
     }
 }
