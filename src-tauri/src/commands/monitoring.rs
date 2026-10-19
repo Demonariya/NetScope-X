@@ -1,5 +1,5 @@
 use crate::monitoring::collector::{LiveNetworkStats, MonitoringCollector};
-use crate::settings::{config::AppConfig, persistence::SettingsPersistence};
+use crate::settings::persistence::SettingsPersistence;
 use crate::storage::database::Database;
 use crate::storage::history::{HistoryStorage, TrafficHistoryEntry};
 use rusqlite::Connection;

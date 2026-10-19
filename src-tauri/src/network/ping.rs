@@ -24,7 +24,6 @@ impl PingService {
     /// Measures a TCP connection handshake to port 443 (or an explicitly supplied host:port).
     /// This is not ICMP echo ping; the UI aggregates actual attempts into rolling statistics.
     pub fn probe(target: &str, timeout_ms: u64) -> PingProbeResult {
-        let start = Instant::now();
         let target_str = if target.starts_with('[') {
             target.to_string()
         } else if target.parse::<std::net::Ipv6Addr>().is_ok() {
@@ -41,12 +40,10 @@ impl PingService {
 
         let mut success = false;
         let mut timed_out = false;
-        let mut resolved = false;
         let mut latency = 0.0;
 
         if let Ok(addrs) = target_str.to_socket_addrs() {
             for addr in addrs {
-                resolved = true;
                 let connect_started = Instant::now();
                 match std::net::TcpStream::connect_timeout(
                     &addr,
@@ -68,8 +65,6 @@ impl PingService {
             "success"
         } else if timed_out {
             "timeout"
-        } else if resolved {
-            "error"
         } else {
             "error"
         };

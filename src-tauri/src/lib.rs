@@ -60,6 +60,14 @@ impl AppRuntimeState {
 
 pub fn run() {
     tauri::Builder::default()
+        // Keep one desktop process/tray icon; subsequent launches restore the existing window.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(AppRuntimeState::default())
         .setup(|app| {
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
