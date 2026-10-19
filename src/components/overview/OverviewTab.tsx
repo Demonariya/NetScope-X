@@ -335,7 +335,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* 4. Connection TCP Connection Latency Section */}
+      {/* 4. ICMP Ping Latency Section */}
       <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3">
         <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800/60">
           <div className="flex items-center gap-1.5">
@@ -369,7 +369,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-                Current TCP Latency
+                Current Ping Latency
               </span>
               <span className={`text-[9px] px-1 py-0.2 rounded font-semibold uppercase ${
                 !lastProbeSucceeded
@@ -390,7 +390,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
           <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-              Average TCP Latency
+              Average Ping Latency
             </span>
             <span className="text-base font-semibold font-mono text-slate-200 tabular-nums block mt-1">
               {hasSuccessfulPing ? formatLatency(avgLatencyMs) : '--'}
@@ -468,7 +468,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
             <input
               type="text"
-              placeholder="TCP host (port 443), e.g. 1.1.1.1"
+              placeholder="Hostname or IPv4 address, e.g. 1.1.1.1"
               value={customPingHost}
               onChange={e => setCustomPingHost(e.target.value)}
               className="w-full bg-transparent text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none font-mono"

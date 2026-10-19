@@ -69,40 +69,89 @@ impl NetworkAdapter {
         #[cfg(windows)]
         {
             let script = r#"
-$ipConfigurations = @()
+$ErrorActionPreference = 'Stop'
+
+# Optional IP metadata is collected independently so a failing IP cmdlet
+# cannot prevent Windows adapters from being enumerated.
+$ipv4ByInterface = @{}
+$ipv6ByInterface = @{}
+$gatewayByInterface = @{}
+$dnsByInterface = @{}
+
 try {
-  $ipConfigurations = @(Get-NetIPConfiguration -ErrorAction SilentlyContinue 2>$null)
-} catch {
-  $ipConfigurations = @()
-}
-$ipByInterface = @{}
-foreach ($configuration in $ipConfigurations) {
-  try {
-    if ($null -ne $configuration -and $null -ne $configuration.InterfaceIndex) {
-      $ipByInterface[[string]$configuration.InterfaceIndex] = $configuration
+  foreach ($address in @(Get-NetIPAddress -ErrorAction SilentlyContinue)) {
+    if ($null -eq $address -or $null -eq $address.InterfaceIndex) { continue }
+    $key = [string]$address.InterfaceIndex
+    $ipAddress = [string]$address.IPAddress
+    if ([string]::IsNullOrWhiteSpace($ipAddress)) { continue }
+
+    if ($address.AddressFamily -eq 'IPv4' -and -not $ipv4ByInterface.ContainsKey($key)) {
+      if ($ipAddress -ne '127.0.0.1' -and $ipAddress -notlike '169.254.*') {
+        $ipv4ByInterface[$key] = $ipAddress
+      }
+    } elseif ($address.AddressFamily -eq 'IPv6' -and -not $ipv6ByInterface.ContainsKey($key)) {
+      if ($ipAddress -ne '::1' -and $ipAddress -notlike 'fe80:*') {
+        $ipv6ByInterface[$key] = $ipAddress
+      }
     }
-  } catch {}
+  }
+} catch {
+  # Keep adapter enumeration working when IP metadata is restricted/unavailable.
 }
+
+try {
+  foreach ($route in @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric)) {
+    $key = [string]$route.InterfaceIndex
+    $nextHop = [string]$route.NextHop
+    if (-not [string]::IsNullOrWhiteSpace($nextHop) -and -not $gatewayByInterface.ContainsKey($key)) {
+      $gatewayByInterface[$key] = $nextHop
+    }
+  }
+  foreach ($route in @(Get-NetRoute -DestinationPrefix '::/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric)) {
+    $key = [string]$route.InterfaceIndex
+    $nextHop = [string]$route.NextHop
+    if (-not [string]::IsNullOrWhiteSpace($nextHop) -and -not $gatewayByInterface.ContainsKey($key)) {
+      $gatewayByInterface[$key] = $nextHop
+    }
+  }
+} catch {
+  # Gateway is optional metadata.
+}
+
+try {
+  foreach ($dnsEntry in @(Get-DnsClientServerAddress -ErrorAction SilentlyContinue)) {
+    if ($null -eq $dnsEntry -or $null -eq $dnsEntry.InterfaceIndex) { continue }
+    $key = [string]$dnsEntry.InterfaceIndex
+    $servers = @($dnsEntry.ServerAddresses | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    if ($servers.Count -eq 0) { continue }
+    if (-not $dnsByInterface.ContainsKey($key)) { $dnsByInterface[$key] = @() }
+    $dnsByInterface[$key] = @($dnsByInterface[$key] + $servers | Select-Object -Unique)
+  }
+} catch {
+  # DNS is optional metadata.
+}
+
 $rows = @(
   Get-NetAdapter -IncludeHidden -ErrorAction Stop |
     Where-Object { $_.Status -ne 'Not Present' } |
     ForEach-Object {
       $adapter = $_
-      $ip = $null
-      try {
-        $ip = $ipByInterface[[string]$adapter.ifIndex]
-      } catch {
-        $ip = $null
-      }
+      $key = [string]$adapter.ifIndex
+      $ipv4 = if ($ipv4ByInterface.ContainsKey($key)) { [string]$ipv4ByInterface[$key] } else { '' }
+      $ipv6 = if ($ipv6ByInterface.ContainsKey($key)) { [string]$ipv6ByInterface[$key] } else { '' }
+      $gateway = if ($gatewayByInterface.ContainsKey($key)) { [string]$gatewayByInterface[$key] } else { '' }
+      $dns = if ($dnsByInterface.ContainsKey($key)) { @($dnsByInterface[$key]) } else { @() }
+
+      $description = [string]$adapter.InterfaceDescription
+      $adapterName = [string]$adapter.Name
       $kind = 'ethernet'
-      if ($adapter.InterfaceDescription -match 'Wi-?Fi|Wireless|802\.11') { $kind = 'wifi' }
-      elseif ($adapter.Name -match 'loopback') { $kind = 'loopback' }
-      elseif (-not $adapter.HardwareInterface -or $adapter.Name -match 'VPN|TAP|Tunnel|Virtual|WireGuard|Wintun') { $kind = 'virtual' }
+      if ($description -match 'Wi-?Fi|Wireless|802\.11') { $kind = 'wifi' }
+      elseif ($description -match 'RNDIS|USB Tether|Remote NDIS' -or $adapterName -match 'RNDIS|USB Tether|Remote NDIS') { $kind = 'usb_tether' }
+      elseif ($description -match 'WWAN|Mobile Broadband|Cellular|LTE|5G Modem') { $kind = 'cellular' }
+      elseif ($adapterName -match 'loopback' -or $description -match 'loopback') { $kind = 'loopback' }
+      elseif (-not $adapter.HardwareInterface -or $adapterName -match 'VPN|TAP|Tunnel|Virtual|WireGuard|Wintun|Hyper-V|VMware|VirtualBox' -or $description -match 'VPN|TAP|Tunnel|Virtual|WireGuard|Wintun|Hyper-V|VMware|VirtualBox') { $kind = 'virtual' }
+
       $status = if ($adapter.Status -eq 'Up') { 'connected' } else { 'disconnected' }
-      $ipv4 = @($ip.IPv4Address | ForEach-Object { $_.IPAddress } | Where-Object { $_ }) | Select-Object -First 1
-      $ipv6 = @($ip.IPv6Address | ForEach-Object { $_.IPAddress } | Where-Object { $_ }) | Select-Object -First 1
-      $gateway = @($ip.IPv4DefaultGateway | ForEach-Object { $_.NextHop } | Where-Object { $_ }) | Select-Object -First 1
-      $dns = @($ip.DnsServer.ServerAddresses | Where-Object { $_ })
       $speed = 0
       $linkText = [string]$adapter.LinkSpeed
       if ($linkText -match '([0-9]+(?:\.[0-9]+)?)\s*(Kbps|Mbps|Gbps)') {
@@ -113,22 +162,23 @@ $rows = @(
           'Kbps' { $speed = [int][math]::Round($number / 1000) }
         }
       }
+
       [pscustomobject]@{
         id = [string]$adapter.ifIndex
-        name = [string]$adapter.Name
-        description = [string]$adapter.InterfaceDescription
+        name = $adapterName
+        description = $description
         type = $kind
         status = $status
-        localIPv4 = [string]$ipv4
-        localIPv6 = [string]$ipv6
+        localIPv4 = $ipv4
+        localIPv6 = $ipv6
         macAddress = [string]$adapter.MacAddress
-        gateway = [string]$gateway
+        gateway = $gateway
         dnsServers = @($dns)
         signalPercent = $null
         signalDbm = $null
         ssid = $null
         speedMbps = $speed
-        isDefault = [bool]$gateway
+        isDefault = -not [string]::IsNullOrWhiteSpace($gateway)
       }
     }
 )

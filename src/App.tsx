@@ -132,7 +132,7 @@ export default function App() {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
-  // Aggregate actual TCP connection probes; failed attempts are not treated as 0 ms.
+  // Aggregate actual ICMP ping probes; failed attempts are not treated as 0 ms.
   const recordPingAttempt = (result: PingResult) => {
     const previous = pingAttemptsRef.current;
     const sameTarget = previous.length > 0 && previous[previous.length - 1].target === result.target;
@@ -309,7 +309,7 @@ export default function App() {
     };
   }, [isMonitoring, activeTab, historyRange]);
 
-  // TCP latency uses blocking socket operations, so probe it less often than interface counters.
+  // ICMP probing runs on a blocking worker, so sample it less often than interface counters.
   useEffect(() => {
     if (!isMonitoring) return;
 
@@ -368,10 +368,10 @@ export default function App() {
           : prev
       );
       addToast(
-        res.status === 'success' ? 'TCP Probe Switched' : 'TCP Probe Failed',
+        res.status === 'success' ? 'Ping Target Switched' : 'Ping Failed',
         res.status === 'success'
           ? `Target: ${cleanTarget} (${formatLatency(res.latencyMs)})`
-          : `Could not establish a TCP connection to ${cleanTarget}:443 (${res.status}).`,
+          : `ICMP ping to ${cleanTarget} failed (${res.status}).`,
         res.status === 'success' ? 'success' : 'error'
       );
     } catch {
