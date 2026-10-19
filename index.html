@@ -9,12 +9,68 @@
     <meta property="og:description" content="High-performance desktop network intelligence utility with real-time per-process bandwidth accounting, adapter telemetry, live connection inspector, and diagnostics." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+      html, body, #root {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #0b0f17;
+        color: #e2e8f0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+      }
+      #boot-fallback {
+        box-sizing: border-box;
+        width: 405px;
+        height: 720px;
+        max-width: 100vw;
+        max-height: 100dvh;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 28px;
+        text-align: center;
+      }
+      .boot-mark {
+        display: grid;
+        place-items: center;
+        width: 48px;
+        height: 48px;
+        margin-bottom: 8px;
+        border: 1px solid #334155;
+        border-radius: 14px;
+        background: #111827;
+        color: #f472b6;
+        font-weight: 700;
+        letter-spacing: .04em;
+      }
+      .boot-title { margin: 0; font-size: 15px; font-weight: 650; }
+      .boot-detail { margin: 0; color: #94a3b8; font-size: 12px; line-height: 1.6; }
+      #boot-fallback[data-state="error"] .boot-mark { color: #fb7185; border-color: #7f1d1d; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-fallback" role="status" aria-live="polite">
+        <div class="boot-mark" aria-hidden="true">NS</div>
+        <p class="boot-title">Starting NetScope X</p>
+        <p class="boot-detail">Loading the local desktop interface…</p>
+      </div>
+    </div>
+    <script>
+      window.setTimeout(() => {
+        const fallback = document.getElementById('boot-fallback');
+        if (!fallback) return;
+        fallback.dataset.state = 'error';
+        fallback.setAttribute('role', 'alert');
+        const title = fallback.querySelector('.boot-title');
+        const detail = fallback.querySelector('.boot-detail');
+        if (title) title.textContent = 'Interface failed to start';
+        if (detail) detail.textContent = 'The local UI did not mount. Restart NetScope X; if this persists, check WebView2 Runtime and antivirus quarantine.';
+      }, 12000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

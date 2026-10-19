@@ -18,16 +18,28 @@ export const ConnectionsTab: React.FC<ConnectionsTabProps> = ({
   onShowToast,
 }) => {
   const [protocolFilter, setProtocolFilter] = useState<'ALL' | 'TCP' | 'UDP'>('ALL');
-  const [stateFilter, setStateFilter] = useState<'ALL' | 'ESTABLISHED' | 'LISTENING'>('ALL');
+  const [stateFilter, setStateFilter] = useState<'ALL' | 'ESTABLISHED' | 'LISTENING' | 'BOUND'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const handleCopyEndpoint = (conn: SocketConnection) => {
-    const text = `${conn.remoteAddress}:${conn.remotePort}`;
-    navigator.clipboard.writeText(text);
-    setCopiedId(conn.id);
-    onShowToast('Endpoint Copied', text);
-    setTimeout(() => setCopiedId(null), 2000);
+    const hasRemoteEndpoint = Boolean(conn.remoteAddress) && conn.remotePort > 0;
+    const text = hasRemoteEndpoint
+      ? `${conn.remoteAddress}:${conn.remotePort}`
+      : `${conn.localAddress}:${conn.localPort}`;
+
+    if (!navigator.clipboard?.writeText) {
+      onShowToast('Copy Unavailable', 'Clipboard access is unavailable in this window.');
+      return;
+    }
+
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(conn.id);
+      onShowToast(hasRemoteEndpoint ? 'Remote Endpoint Copied' : 'Local Endpoint Copied', text);
+      window.setTimeout(() => setCopiedId(null), 2000);
+    }).catch(() => {
+      onShowToast('Copy Failed', 'Windows did not grant clipboard access to this window.');
+    });
   };
 
   const filteredConnections = useMemo(() => {
@@ -40,6 +52,8 @@ export const ConnectionsTab: React.FC<ConnectionsTabProps> = ({
           conn.processName.toLowerCase().includes(q) ||
           conn.remoteAddress.toLowerCase().includes(q) ||
           conn.localAddress.toLowerCase().includes(q) ||
+          conn.localPort.toString().includes(q) ||
+          (conn.remotePort > 0 && conn.remotePort.toString().includes(q)) ||
           conn.pid.toString().includes(q)
         );
       }
@@ -100,7 +114,8 @@ export const ConnectionsTab: React.FC<ConnectionsTabProps> = ({
           >
             <option value="ALL">All States</option>
             <option value="ESTABLISHED">Established</option>
-            <option value="LISTENING">Listening</option>
+            <option value="LISTENING">Listening (TCP)</option>
+            <option value="BOUND">Bound (UDP)</option>
           </select>
         </div>
       </div>
@@ -117,6 +132,7 @@ export const ConnectionsTab: React.FC<ConnectionsTabProps> = ({
           filteredConnections.map(conn => {
             const iconSrc = getProcessIconSvg(conn.processName);
             const isCopied = copiedId === conn.id;
+            const hasRemoteEndpoint = Boolean(conn.remoteAddress) && conn.remotePort > 0;
 
             return (
               <div
@@ -171,25 +187,27 @@ export const ConnectionsTab: React.FC<ConnectionsTabProps> = ({
                 <div className="p-2 rounded bg-slate-950/70 border border-slate-800/60 font-mono text-[11px] flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1 truncate">
                     <span className="text-slate-400 block text-[9px] uppercase tracking-wider font-sans">
-                      Remote Endpoint
+                      {hasRemoteEndpoint ? 'Remote Endpoint' : 'Local Endpoint'}
                     </span>
                     <span className="text-slate-200 font-medium truncate block">
-                      {conn.remoteAddress}:{conn.remotePort}
+                      {hasRemoteEndpoint
+                        ? `${conn.remoteAddress}:${conn.remotePort}`
+                        : `${conn.localAddress}:${conn.localPort}`}
                     </span>
                   </div>
 
                   <div className="text-right shrink-0">
                     <span className="text-slate-400 block text-[9px] uppercase tracking-wider font-sans">
-                      Local Port
+                      {hasRemoteEndpoint ? 'Local Port' : 'Protocol'}
                     </span>
                     <span className="text-slate-300 block">
-                      :{conn.localPort}
+                      {hasRemoteEndpoint ? `:${conn.localPort}` : conn.protocol}
                     </span>
                   </div>
 
                   <button
                     onClick={() => handleCopyEndpoint(conn)}
-                    title="Copy remote endpoint IP:Port"
+                    title={hasRemoteEndpoint ? "Copy remote endpoint IP:Port" : "Copy local endpoint IP:Port"}
                     className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-sky-300 transition-colors ml-1 shrink-0"
                   >
                     {isCopied ? (

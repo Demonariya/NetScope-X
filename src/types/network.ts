@@ -59,6 +59,8 @@ export type TcpState =
   | 'CLOSED'
   | 'LAST_ACK';
 
+export type SocketState = TcpState | 'BOUND';
+
 export interface SocketConnection {
   id: string;
   protocol: SocketProtocol;
@@ -66,7 +68,7 @@ export interface SocketConnection {
   localPort: number;
   remoteAddress: string;
   remotePort: number;
-  state: TcpState;
+  state: SocketState;
   pid: number;
   processName: string;
   bytesSent: number | null;
