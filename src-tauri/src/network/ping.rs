@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::net::ToSocketAddrs;
-use std::time::Instant;
+
+#[cfg(windows)]
+use std::net::{Ipv4Addr, ToSocketAddrs};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,54 +21,130 @@ pub struct PingProbeResult {
 
 pub struct PingService;
 
-impl PingService {
-    /// Measures a TCP connection handshake to port 443 (or an explicitly supplied host:port).
-    /// This is not ICMP echo ping; the UI aggregates actual attempts into rolling statistics.
-    pub fn probe(target: &str, timeout_ms: u64) -> PingProbeResult {
-        let target_str = if target.starts_with('[') {
-            target.to_string()
-        } else if target.parse::<std::net::Ipv6Addr>().is_ok() {
-            format!("[{target}]:443")
-        } else if let Some((host, port)) = target.rsplit_once(':') {
-            if !host.contains(':') && port.parse::<u16>().is_ok() {
-                target.to_string()
-            } else {
-                format!("{target}:443")
-            }
-        } else {
-            format!("{target}:443")
+#[cfg(windows)]
+fn resolve_ipv4(target: &str) -> Result<Ipv4Addr, ()> {
+    let trimmed = target.trim();
+    let host = trimmed
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(trimmed);
+    if host.is_empty() {
+        return Err(());
+    }
+    if let Ok(address) = host.parse::<Ipv4Addr>() {
+        return Ok(address);
+    }
+
+    (host, 0u16)
+        .to_socket_addrs()
+        .map_err(|_| ())?
+        .find_map(|address| match address.ip() {
+            std::net::IpAddr::V4(ipv4) => Some(ipv4),
+            std::net::IpAddr::V6(_) => None,
+        })
+        .ok_or(())
+}
+
+#[cfg(windows)]
+#[repr(C)]
+struct IcmpEchoReplyHeader {
+    _address: u32,
+    status: u32,
+    round_trip_time: u32,
+}
+
+#[cfg(windows)]
+#[link(name = "iphlpapi")]
+extern "system" {
+    fn IcmpCreateFile() -> *mut std::ffi::c_void;
+    fn IcmpCloseHandle(handle: *mut std::ffi::c_void) -> i32;
+    fn IcmpSendEcho(
+        handle: *mut std::ffi::c_void,
+        destination_address: u32,
+        request_data: *mut std::ffi::c_void,
+        request_size: u16,
+        request_options: *mut std::ffi::c_void,
+        reply_buffer: *mut std::ffi::c_void,
+        reply_size: u32,
+        timeout: u32,
+    ) -> u32;
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetLastError() -> u32;
+}
+
+#[cfg(windows)]
+fn probe_icmp_ipv4(address: Ipv4Addr, timeout_ms: u64) -> (&'static str, f64) {
+    const REQUEST: &[u8] = b"NetScopeX";
+    const REPLY_EXTRA_BYTES: usize = 512;
+
+    let handle = unsafe { IcmpCreateFile() };
+    if handle.is_null() || handle as isize == -1 {
+        return ("error", 0.0);
+    }
+
+    let mut request = *REQUEST;
+    let required_size = std::mem::size_of::<IcmpEchoReplyHeader>()
+        + REQUEST.len()
+        + REPLY_EXTRA_BYTES;
+    let word_size = std::mem::size_of::<usize>();
+    let mut reply_words = vec![0usize; required_size.div_ceil(word_size)];
+    let reply_size = (reply_words.len() * word_size) as u32;
+    let timeout = timeout_ms.clamp(1, u32::MAX as u64) as u32;
+
+    let replies = unsafe {
+        IcmpSendEcho(
+            handle,
+            u32::from_ne_bytes(address.octets()),
+            request.as_mut_ptr().cast(),
+            request.len() as u16,
+            std::ptr::null_mut(),
+            reply_words.as_mut_ptr().cast(),
+            reply_size,
+            timeout,
+        )
+    };
+
+    let outcome = if replies > 0 {
+        let reply = unsafe {
+            std::ptr::read_unaligned(reply_words.as_ptr().cast::<IcmpEchoReplyHeader>())
         };
-
-        let mut success = false;
-        let mut timed_out = false;
-        let mut latency = 0.0;
-
-        if let Ok(addrs) = target_str.to_socket_addrs() {
-            for addr in addrs {
-                let connect_started = Instant::now();
-                match std::net::TcpStream::connect_timeout(
-                    &addr,
-                    std::time::Duration::from_millis(timeout_ms.max(1)),
-                ) {
-                    Ok(_stream) => {
-                        latency = connect_started.elapsed().as_secs_f64() * 1000.0;
-                        success = true;
-                        break;
-                    }
-                    Err(error) => {
-                        timed_out |= error.kind() == std::io::ErrorKind::TimedOut;
-                    }
-                }
-            }
+        match reply.status {
+            0 => ("success", reply.round_trip_time as f64),
+            11010 => ("timeout", 0.0), // IP_REQ_TIMED_OUT
+            _ => ("error", 0.0),
         }
+    } else {
+        match unsafe { GetLastError() } {
+            11010 | 1460 => ("timeout", 0.0), // IP_REQ_TIMED_OUT / ERROR_TIMEOUT
+            _ => ("error", 0.0),
+        }
+    };
 
-        let status = if success {
-            "success"
-        } else if timed_out {
-            "timeout"
-        } else {
-            "error"
+    let _ = unsafe { IcmpCloseHandle(handle) };
+    outcome
+}
+
+impl PingService {
+    /// Sends a real Windows ICMP Echo Request to an IPv4 address or hostname.
+    /// IPv6-only targets are reported as unavailable instead of measured with a TCP handshake.
+    pub fn probe(target: &str, timeout_ms: u64) -> PingProbeResult {
+        #[cfg(windows)]
+        let (status, latency) = match resolve_ipv4(target) {
+            Ok(address) => probe_icmp_ipv4(address, timeout_ms),
+            Err(()) => ("error", 0.0),
         };
+
+        #[cfg(not(windows))]
+        let (status, latency) = {
+            let _ = timeout_ms;
+            ("error", 0.0)
+        };
+
+        let success = status == "success";
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

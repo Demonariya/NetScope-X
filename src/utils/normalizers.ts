@@ -23,7 +23,7 @@ function nonEmptyString(record: UnknownRecord, keys: string[], fallback: string)
   return fallback;
 }
 
-/** Normalize native and HTTP telemetry into the frontend's camelCase contract. */
+/** Normalize native telemetry into the frontend's camelCase contract. */
 export function normalizePingResult(input: unknown, fallbackHost = '1.1.1.1'): PingResult {
   const record = asRecord(input);
   const target = nonEmptyString(record, ['target', 'host'], fallbackHost);
@@ -44,6 +44,6 @@ export function normalizePingResult(input: unknown, fallbackHost = '1.1.1.1'): P
   return {
     target, host, latencyMs, minLatencyMs, maxLatencyMs, avgLatencyMs,
     jitterMs, packetLossPercent, status, lastChecked,
-    history: history.length > 0 ? history : [latencyMs],
+    history: history.length > 0 ? history : (status === 'success' ? [latencyMs] : []),
   };
 }

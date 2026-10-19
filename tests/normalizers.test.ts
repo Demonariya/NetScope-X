@@ -26,12 +26,17 @@ describe('normalizePingResult', () => {
     expect(result.history).toEqual([8]);
     expect(result.status).toBe('error');
   });
+  it('does not invent a zero-millisecond sample when a probe fails', () => {
+    const result = normalizePingResult({ status: 'timeout', latency_ms: 0, history: [] });
+    expect(result.status).toBe('timeout');
+    expect(result.history).toEqual([]);
+  });
   it('handles null payloads safely', () => {
     const result = normalizePingResult(null);
     expect(result.latencyMs).toBe(0);
     expect(result.minLatencyMs).toBe(0);
     expect(result.maxLatencyMs).toBe(0);
-    expect(result.history).toEqual([0]);
+    expect(result.history).toEqual([]);
     expect(result.status).toBe('error');
   });
 });
