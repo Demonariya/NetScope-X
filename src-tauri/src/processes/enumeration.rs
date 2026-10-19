@@ -333,6 +333,7 @@ foreach ($rule in $rules) {
 $rows = @(
   Get-Process -ErrorAction Stop | ForEach-Object {
     $process = $_
+    $key = [string]$process.Id
     $path = ''
     try {
       $path = [string]$process.Path
