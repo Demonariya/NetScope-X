@@ -158,14 +158,11 @@ pub async fn system_tray_action(app: AppHandle, action: String) -> Result<bool, 
             .map_err(|error| format!("Tray monitoring worker failed: {error}"))?;
         }
         "quit" => {
-            let stop_result = tauri::async_runtime::spawn_blocking(
-                crate::monitoring::etw::EtwSessionManager::stop_session,
+            tauri::async_runtime::spawn_blocking(
+                crate::monitoring::lifecycle::LifecycleManager::cleanup,
             )
             .await
-            .map_err(|error| format!("ETW stop worker failed: {error}"))?;
-            if let Err(error) = stop_result {
-                eprintln!("NetScope X could not stop ETW before exit: {error}");
-            }
+            .map_err(|error| format!("Shutdown cleanup worker failed: {error}"))?;
             app.exit(0);
         }
         _ => return Err(format!("Unknown system tray action: {action}")),
@@ -175,14 +172,11 @@ pub async fn system_tray_action(app: AppHandle, action: String) -> Result<bool, 
 
 #[command]
 pub async fn exit_app(app: AppHandle) -> Result<(), String> {
-    let stop_result = tauri::async_runtime::spawn_blocking(
-        crate::monitoring::etw::EtwSessionManager::stop_session,
+    tauri::async_runtime::spawn_blocking(
+        crate::monitoring::lifecycle::LifecycleManager::cleanup,
     )
     .await
-    .map_err(|error| format!("ETW stop worker failed: {error}"))?;
-    if let Err(error) = stop_result {
-        eprintln!("NetScope X could not stop ETW before exit: {error}");
-    }
+    .map_err(|error| format!("Shutdown cleanup worker failed: {error}"))?;
     app.exit(0);
     Ok(())
 }

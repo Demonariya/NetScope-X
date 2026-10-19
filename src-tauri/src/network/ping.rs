@@ -87,9 +87,8 @@ fn probe_icmp_ipv4(address: Ipv4Addr, timeout_ms: u64) -> (&'static str, f64) {
     }
 
     let mut request = *REQUEST;
-    let required_size = std::mem::size_of::<IcmpEchoReplyHeader>()
-        + REQUEST.len()
-        + REPLY_EXTRA_BYTES;
+    let required_size =
+        std::mem::size_of::<IcmpEchoReplyHeader>() + REQUEST.len() + REPLY_EXTRA_BYTES;
     let word_size = std::mem::size_of::<usize>();
     let mut reply_words = vec![0usize; required_size.div_ceil(word_size)];
     let reply_size = (reply_words.len() * word_size) as u32;
@@ -109,9 +108,8 @@ fn probe_icmp_ipv4(address: Ipv4Addr, timeout_ms: u64) -> (&'static str, f64) {
     };
 
     let outcome = if replies > 0 {
-        let reply = unsafe {
-            std::ptr::read_unaligned(reply_words.as_ptr().cast::<IcmpEchoReplyHeader>())
-        };
+        let reply =
+            unsafe { std::ptr::read_unaligned(reply_words.as_ptr().cast::<IcmpEchoReplyHeader>()) };
         match reply.status {
             0 => ("success", reply.round_trip_time as f64),
             11010 => ("timeout", 0.0), // IP_REQ_TIMED_OUT
