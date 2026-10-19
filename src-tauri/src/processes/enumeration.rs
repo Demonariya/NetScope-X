@@ -73,10 +73,11 @@ fn extract_executable_icons(paths: &[String]) -> Result<Vec<ExecutableIconRecord
     let json = serde_json::to_vec(paths)
         .map_err(|error| format!("Could not encode executable paths for icon extraction: {error}"))?;
     let encoded_paths = STANDARD.encode(json);
-    let script = format!(
-        r#"
+    // Replace a marker rather than interpolating a PowerShell script with Rust
+    // format!; PowerShell's braces must remain untouched.
+    let script = r#"
 $ErrorActionPreference = 'Stop'
-$pathJson = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{encoded_paths}'))
+$pathJson = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('__ENCODED_PATHS__'))
 $paths = @($pathJson | ConvertFrom-Json)
 try { Add-Type -AssemblyName System.Drawing -ErrorAction Stop } catch {}
 $rows = @(
@@ -110,7 +111,7 @@ $rows = @(
 )
 ConvertTo-Json -InputObject @($rows) -Depth 3 -Compress
 "#
-    );
+    .replace("__ENCODED_PATHS__", &encoded_paths);
 
     let output = crate::windows_utils::run_powershell(&script)?;
     serde_json::from_str::<Vec<ExecutableIconRecord>>(&output)
