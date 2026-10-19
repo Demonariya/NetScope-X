@@ -55,7 +55,8 @@ pub async fn export_traffic_history(
                 .map_err(|error| format!("Cannot read traffic history for export: {error}"))?;
         match format.as_str() {
             "csv" => Ok(DataExporter::to_csv(&entries)),
-            "json" => Ok(DataExporter::to_json(&entries)),
+            "json" => DataExporter::to_json(&entries)
+                .map_err(|error| format!("Could not serialize traffic history as JSON: {error}")),
             _ => Err(format!("Unsupported export format: {format}")),
         }
     })

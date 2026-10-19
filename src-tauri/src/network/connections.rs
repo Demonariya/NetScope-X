@@ -22,12 +22,14 @@ impl SocketConnectionRecord {
     /// Reads currently active TCP connections and bound UDP endpoints from Windows.
     pub fn get_active_connections() -> Result<Vec<Self>, String> {
         let script = r#"
+$ErrorActionPreference = 'Stop'
 $processNames = @{}
+# Process-name lookup is supplementary; retain a PID fallback if a process exits or is inaccessible.
 Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
   $processNames[[string]$_.Id] = "$($_.ProcessName).exe"
 }
 $tcpRows = @(
-  Get-NetTCPConnection -ErrorAction SilentlyContinue | ForEach-Object {
+  Get-NetTCPConnection -ErrorAction Stop | ForEach-Object {
     $pidValue = [int]$_.OwningProcess
     $key = [string]$pidValue
     $processName = if ($pidValue -eq 0) { 'Unattributed' } elseif ($processNames.ContainsKey($key)) { $processNames[$key] } else { "PID $pidValue" }
@@ -59,7 +61,7 @@ $tcpRows = @(
   }
 )
 $udpRows = @(
-  Get-NetUDPEndpoint -ErrorAction SilentlyContinue | ForEach-Object {
+  Get-NetUDPEndpoint -ErrorAction Stop | ForEach-Object {
     $pidValue = [int]$_.OwningProcess
     $key = [string]$pidValue
     $processName = if ($pidValue -eq 0) { 'Unattributed' } elseif ($processNames.ContainsKey($key)) { $processNames[$key] } else { "PID $pidValue" }

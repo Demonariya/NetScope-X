@@ -339,20 +339,30 @@ export default function App() {
 
   // Process enumeration also gathers each PID's socket list; refresh both from that one query every 4 seconds.
   useEffect(() => {
-    if (!isMonitoring) return;
+    if (!isTauri || !isMonitoring) return;
 
     let inFlight = false;
     let cancelled = false;
+    let processQueryFailureNotified = false;
     const refreshProcesses = async () => {
       if (inFlight || cancelled) return;
       inFlight = true;
       try {
         const current = await api.getProcesses();
         if (cancelled) return;
+        processQueryFailureNotified = false;
         setProcesses(current);
         setConnections(current.flatMap(process => process.connections ?? []));
       } catch (error) {
-        console.warn('Live process query failed:', error);
+        console.error('Live process/socket query failed:', error);
+        if (!cancelled && !processQueryFailureNotified) {
+          processQueryFailureNotified = true;
+          addToast(
+            'Process / Socket Query Failed',
+            error instanceof Error ? error.message : String(error),
+            'error'
+          );
+        }
       } finally {
         inFlight = false;
       }
@@ -363,21 +373,33 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [isMonitoring]);
+  }, [isTauri, isMonitoring]);
 
   // The backend refreshes SQLite history while either traffic-related tab is visible.
   useEffect(() => {
     if (!isTauri || (activeTab !== 'traffic' && activeTab !== 'history')) return;
     let inFlight = false;
     let cancelled = false;
+    let historyQueryFailureNotified = false;
     const refreshHistory = async () => {
       if (inFlight || cancelled) return;
       inFlight = true;
       try {
         const records = await api.getHistory(historyRange);
-        if (!cancelled) setHistory(records);
+        if (!cancelled) {
+          historyQueryFailureNotified = false;
+          setHistory(records);
+        }
       } catch (error) {
-        console.warn('Traffic history refresh failed:', error);
+        console.error('Traffic history refresh failed:', error);
+        if (!cancelled && !historyQueryFailureNotified) {
+          historyQueryFailureNotified = true;
+          addToast(
+            'Traffic History Unavailable',
+            error instanceof Error ? error.message : String(error),
+            'error'
+          );
+        }
       } finally {
         inFlight = false;
       }
@@ -392,18 +414,30 @@ export default function App() {
 
   // ICMP probing runs on a blocking worker, so sample it less often than interface counters.
   useEffect(() => {
-    if (!isMonitoring) return;
+    if (!isTauri || !isMonitoring) return;
 
     let inFlight = false;
     let cancelled = false;
+    let pingQueryFailureNotified = false;
     const pollPing = async () => {
       if (inFlight || cancelled) return;
       inFlight = true;
       try {
         const result = await api.getPing(activePingTarget);
-        if (!cancelled) recordPingAttempt(result);
+        if (!cancelled) {
+          pingQueryFailureNotified = false;
+          recordPingAttempt(result);
+        }
       } catch (error) {
-        console.warn('Ping probe failed:', error);
+        console.error('Ping probe failed:', error);
+        if (!cancelled && !pingQueryFailureNotified) {
+          pingQueryFailureNotified = true;
+          addToast(
+            'Ping Probe Failed',
+            error instanceof Error ? error.message : String(error),
+            'error'
+          );
+        }
       } finally {
         inFlight = false;
       }
@@ -415,7 +449,7 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [isMonitoring, activePingTarget, settings?.diagnostics.pingIntervalMs]);
+  }, [isTauri, isMonitoring, activePingTarget, settings?.diagnostics.pingIntervalMs]);
 
   // Adapter selection drives live counters and is persisted with Settings.
   const handleSelectAdapter = (id: string) => {
@@ -455,8 +489,12 @@ export default function App() {
           : `ICMP ping to ${cleanTarget} failed (${res.status}).`,
         res.status === 'success' ? 'success' : 'error'
       );
-    } catch {
-      addToast('Probe Failed', `Could not reach ${cleanTarget}`, 'error');
+    } catch (error) {
+      addToast(
+        'Probe Failed',
+        error instanceof Error ? error.message : `Could not query ${cleanTarget}`,
+        'error'
+      );
     }
   };
 

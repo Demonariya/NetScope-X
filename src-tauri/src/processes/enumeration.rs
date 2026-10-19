@@ -304,51 +304,31 @@ impl ProcessNetworkUsage {
     /// and ETW-attributed byte totals. Per-process values are marked unavailable if ETW fails.
     pub fn enumerate_monitored_processes() -> Result<Vec<Self>, String> {
         let script = r#"
-$connectionCounts = @{}
-try {
-  Get-NetTCPConnection -ErrorAction SilentlyContinue |
-    Group-Object -Property OwningProcess |
-    ForEach-Object {
-      $connectionCounts[[string]$_.Name] = [int]$_.Count
-    }
-} catch {}
-
-try {
-  Get-NetUDPEndpoint -ErrorAction SilentlyContinue |
-    Group-Object -Property OwningProcess |
-    ForEach-Object {
-      $key = [string]$_.Name
-      $current = 0
-      if ($connectionCounts.ContainsKey($key)) {
-        $current = [int]$connectionCounts[$key]
-      }
-      $connectionCounts[$key] = $current + [int]$_.Count
-    }
-} catch {}
-
+$ErrorActionPreference = 'Stop'
 $blockedPids = @{}
 $blockedPrograms = @{}
-try {
-  Get-NetFirewallRule -ErrorAction SilentlyContinue |
+$rules = @(
+  Get-NetFirewallRule -ErrorAction Stop |
     Where-Object {
       $_.Enabled -eq 'True' -and
       $_.Direction -eq 'Outbound' -and
       $_.Action -eq 'Block' -and
       $_.DisplayName -like 'NetScopeX-Blocked-*-out'
-    } |
-    ForEach-Object {
-      if ($_.DisplayName -match '^NetScopeX-Blocked-(\d+)-out$') {
-        $blockedPids[$Matches[1]] = $true
-      }
-      try {
-        $filter = $_ | Get-NetFirewallApplicationFilter -ErrorAction Stop
-        $program = [string]$filter.Program
-        if (-not [string]::IsNullOrWhiteSpace($program) -and $program -ne 'Any') {
-          $blockedPrograms[$program.ToLowerInvariant()] = $true
-        }
-      } catch {}
     }
-} catch {}
+)
+foreach ($rule in $rules) {
+  $displayName = [string]$rule.DisplayName
+  if ($displayName -match '^NetScopeX-Blocked-(\d+)-out$') {
+    $blockedPids[$Matches[1]] = $true
+  }
+  $filter = $rule | Get-NetFirewallApplicationFilter -ErrorAction Stop
+  foreach ($entry in @($filter)) {
+    $program = [string]$entry.Program
+    if (-not [string]::IsNullOrWhiteSpace($program) -and $program -ne 'Any') {
+      $blockedPrograms[$program.ToLowerInvariant()] = $true
+    }
+  }
+}
 
 $rows = @(
   Get-Process -ErrorAction Stop | ForEach-Object {
@@ -357,12 +337,6 @@ $rows = @(
     try {
       $path = [string]$process.Path
     } catch {}
-
-    $key = [string]$process.Id
-    $connectionCount = 0
-    if ($connectionCounts.ContainsKey($key)) {
-      $connectionCount = [int]$connectionCounts[$key]
-    }
 
     $start = [long]0
     try {
@@ -399,8 +373,8 @@ $rows = @(
       sessionDownloadBytes = [uint64]0
       sessionUploadBytes = [uint64]0
       totalBytes = [uint64]0
-      connectionCount = [uint32]$connectionCount
-      status = if ($connectionCount -gt 0) { 'active' } else { 'idle' }
+      connectionCount = [uint32]0
+      status = 'idle'
       isBlocked = [bool]$isBlocked
       trafficAvailable = $false
       startTime = $start

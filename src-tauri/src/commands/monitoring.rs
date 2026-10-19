@@ -16,6 +16,10 @@ fn history_database_path(app: &AppHandle) -> Result<std::path::PathBuf, String> 
     Ok(directory.join("history.sqlite3"))
 }
 
+fn history_retention_cutoff(today: chrono::NaiveDate, retention_days: i64) -> chrono::NaiveDate {
+    today - chrono::Duration::days(retention_days.max(1) - 1)
+}
+
 fn prune_history_if_needed(app: &AppHandle, connection: &Connection) -> Result<(), String> {
     static LAST_PRUNE_KEY: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 
@@ -25,7 +29,7 @@ fn prune_history_if_needed(app: &AppHandle, connection: &Connection) -> Result<(
     let settings = SettingsPersistence::load_or_default(config_dir.join("settings.json"));
     let retention_days = settings.storage.data_retention_days.clamp(1, 365) as i64;
     let today = chrono::Local::now().date_naive();
-    let cutoff = (today - chrono::Duration::days(retention_days))
+    let cutoff = history_retention_cutoff(today, retention_days)
         .format("%Y-%m-%d")
         .to_string();
     let prune_key = format!("{retention_days}:{cutoff}");
@@ -78,6 +82,21 @@ pub async fn get_live_network_stats(
     })
     .await
     .map_err(|error| format!("Network monitor worker failed: {error}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::history_retention_cutoff;
+
+    #[test]
+    fn retention_window_includes_today_and_exactly_the_configured_days() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 19).expect("valid test date");
+        assert_eq!(history_retention_cutoff(today, 1), today);
+        assert_eq!(
+            history_retention_cutoff(today, 30),
+            chrono::NaiveDate::from_ymd_opt(2026, 9, 20).expect("valid cutoff date")
+        );
+    }
 }
 
 #[command]
