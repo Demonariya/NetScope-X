@@ -22,14 +22,14 @@ pub struct PingProbeResult {
 pub struct PingService;
 
 #[cfg(windows)]
-fn resolve_ipv4(target: &str) -> Result<Ipv4Addr, ()> {
+fn resolve_ipv4(target: &str) -> Result<Ipv4Addr, &'static str> {
     let trimmed = target.trim();
     let host = trimmed
         .strip_prefix('[')
         .and_then(|value| value.strip_suffix(']'))
         .unwrap_or(trimmed);
     if host.is_empty() {
-        return Err(());
+        return Err("Target is empty");
     }
     if let Ok(address) = host.parse::<Ipv4Addr>() {
         return Ok(address);
@@ -37,12 +37,12 @@ fn resolve_ipv4(target: &str) -> Result<Ipv4Addr, ()> {
 
     (host, 0u16)
         .to_socket_addrs()
-        .map_err(|_| ())?
+        .map_err(|_| "DNS lookup failed")?
         .find_map(|address| match address.ip() {
             std::net::IpAddr::V4(ipv4) => Some(ipv4),
             std::net::IpAddr::V6(_) => None,
         })
-        .ok_or(())
+        .ok_or("No IPv4 address is available for this target")
 }
 
 #[cfg(windows)]
@@ -56,9 +56,12 @@ struct IcmpEchoReplyHeader {
 #[cfg(windows)]
 #[link(name = "iphlpapi")]
 extern "system" {
-    fn IcmpCreateFile() -> *mut std::ffi::c_void;
-    fn IcmpCloseHandle(handle: *mut std::ffi::c_void) -> i32;
-    fn IcmpSendEcho(
+    #[link_name = "IcmpCreateFile"]
+    fn icmp_create_file() -> *mut std::ffi::c_void;
+    #[link_name = "IcmpCloseHandle"]
+    fn icmp_close_handle(handle: *mut std::ffi::c_void) -> i32;
+    #[link_name = "IcmpSendEcho"]
+    fn icmp_send_echo(
         handle: *mut std::ffi::c_void,
         destination_address: u32,
         request_data: *mut std::ffi::c_void,
@@ -73,7 +76,8 @@ extern "system" {
 #[cfg(windows)]
 #[link(name = "kernel32")]
 extern "system" {
-    fn GetLastError() -> u32;
+    #[link_name = "GetLastError"]
+    fn get_last_error() -> u32;
 }
 
 #[cfg(windows)]
@@ -81,12 +85,12 @@ fn probe_icmp_ipv4(address: Ipv4Addr, timeout_ms: u64) -> (&'static str, f64) {
     const REQUEST: &[u8] = b"NetScopeX";
     const REPLY_EXTRA_BYTES: usize = 512;
 
-    let handle = unsafe { IcmpCreateFile() };
+    let handle = unsafe { icmp_create_file() };
     if handle.is_null() || handle as isize == -1 {
         return ("error", 0.0);
     }
 
-    let mut request = *REQUEST;
+    let mut request = REQUEST.to_vec();
     let required_size =
         std::mem::size_of::<IcmpEchoReplyHeader>() + REQUEST.len() + REPLY_EXTRA_BYTES;
     let word_size = std::mem::size_of::<usize>();
@@ -95,7 +99,7 @@ fn probe_icmp_ipv4(address: Ipv4Addr, timeout_ms: u64) -> (&'static str, f64) {
     let timeout = timeout_ms.clamp(1, u32::MAX as u64) as u32;
 
     let replies = unsafe {
-        IcmpSendEcho(
+        icmp_send_echo(
             handle,
             u32::from_ne_bytes(address.octets()),
             request.as_mut_ptr().cast(),
@@ -116,13 +120,13 @@ fn probe_icmp_ipv4(address: Ipv4Addr, timeout_ms: u64) -> (&'static str, f64) {
             _ => ("error", 0.0),
         }
     } else {
-        match unsafe { GetLastError() } {
+        match unsafe { get_last_error() } {
             11010 | 1460 => ("timeout", 0.0), // IP_REQ_TIMED_OUT / ERROR_TIMEOUT
             _ => ("error", 0.0),
         }
     };
 
-    let _ = unsafe { IcmpCloseHandle(handle) };
+    let _ = unsafe { icmp_close_handle(handle) };
     outcome
 }
 
@@ -133,7 +137,7 @@ impl PingService {
         #[cfg(windows)]
         let (status, latency) = match resolve_ipv4(target) {
             Ok(address) => probe_icmp_ipv4(address, timeout_ms),
-            Err(()) => ("error", 0.0),
+            Err(_) => ("error", 0.0),
         };
 
         #[cfg(not(windows))]
