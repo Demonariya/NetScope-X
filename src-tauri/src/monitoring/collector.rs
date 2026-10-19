@@ -96,8 +96,7 @@ impl MonitoringCollector {
                 let elapsed_seconds = elapsed_ms as f64 / 1000.0;
                 sample.download_bps =
                     TrafficAggregator::calculate_bps(delta_received, elapsed_seconds);
-                sample.upload_bps =
-                    TrafficAggregator::calculate_bps(delta_sent, elapsed_seconds);
+                sample.upload_bps = TrafficAggregator::calculate_bps(delta_sent, elapsed_seconds);
                 sample.session_download_bytes =
                     sample.session_download_bytes.saturating_add(delta_received);
                 sample.session_upload_bytes =
