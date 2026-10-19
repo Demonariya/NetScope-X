@@ -1,5 +1,5 @@
 use crate::settings::config::AppConfig;
-use crate::settings::persistence::SettingsPersistence;
+use crate::settings::{persistence::SettingsPersistence, validation::SettingsValidator};
 use crate::AppRuntimeState;
 use tauri::{command, AppHandle, Emitter, Manager, Runtime};
 
@@ -79,7 +79,8 @@ pub async fn get_settings(app: AppHandle) -> Result<AppConfig, String> {
 }
 
 #[command]
-pub async fn save_settings(app: AppHandle, settings: AppConfig) -> Result<bool, String> {
+pub async fn save_settings(app: AppHandle, mut settings: AppConfig) -> Result<bool, String> {
+    SettingsValidator::validate(&mut settings);
     tauri::async_runtime::spawn_blocking(move || {
         let path = settings_file(&app)?;
         SettingsPersistence::save(path, &settings)

@@ -1,4 +1,4 @@
-use crate::settings::config::AppConfig;
+use crate::settings::{config::AppConfig, validation::SettingsValidator};
 use std::fs;
 use std::path::Path;
 
@@ -6,16 +6,18 @@ pub struct SettingsPersistence;
 
 impl SettingsPersistence {
     pub fn load_or_default<P: AsRef<Path>>(path: P) -> AppConfig {
-        if let Ok(content) = fs::read_to_string(path) {
-            if let Ok(cfg) = serde_json::from_str(&content) {
-                return cfg;
-            }
-        }
-        AppConfig::default()
+        let mut config = fs::read_to_string(path)
+            .ok()
+            .and_then(|content| serde_json::from_str::<AppConfig>(&content).ok())
+            .unwrap_or_default();
+        SettingsValidator::validate(&mut config);
+        config
     }
 
     pub fn save<P: AsRef<Path>>(path: P, config: &AppConfig) -> Result<(), std::io::Error> {
-        let content = serde_json::to_string_pretty(config)?;
+        let mut config = config.clone();
+        SettingsValidator::validate(&mut config);
+        let content = serde_json::to_string_pretty(&config)?;
         fs::write(path, content)?;
         Ok(())
     }
