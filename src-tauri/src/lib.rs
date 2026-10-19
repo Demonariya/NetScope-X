@@ -88,10 +88,8 @@ pub fn run() {
                         if let Err(error) = window.hide() {
                             eprintln!("NetScope X could not hide to tray on close: {error}");
                         }
-                    } else if let Err(error) =
-                        crate::monitoring::etw::EtwSessionManager::stop_session()
-                    {
-                        eprintln!("NetScope X could not stop ETW before exit: {error}");
+                    } else {
+                        crate::monitoring::lifecycle::LifecycleManager::cleanup();
                     }
                 }
             }

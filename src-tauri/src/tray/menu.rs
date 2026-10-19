@@ -46,7 +46,7 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> Result<TrayIcon<R>, tauri:
                 crate::commands::settings::apply_monitoring_state(app, enabled, per_app_enabled);
             }
             "quit" => {
-                let _ = crate::monitoring::etw::EtwSessionManager::stop_session();
+                crate::monitoring::lifecycle::LifecycleManager::cleanup();
                 app.exit(0);
             }
             _ => {}

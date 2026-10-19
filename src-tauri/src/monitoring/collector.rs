@@ -1,3 +1,4 @@
+use crate::monitoring::traffic_aggregation::TrafficAggregator;
 use crate::network::counters::InterfaceCounters;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -91,12 +92,12 @@ impl MonitoringCollector {
             let delta_received = counters.bytes_received.saturating_sub(previous_received);
             let delta_sent = counters.bytes_sent.saturating_sub(previous_sent);
 
-            if let (Some(download_bps), Some(upload_bps)) = (
-                delta_received.saturating_mul(1000).checked_div(elapsed_ms),
-                delta_sent.saturating_mul(1000).checked_div(elapsed_ms),
-            ) {
-                sample.download_bps = download_bps;
-                sample.upload_bps = upload_bps;
+            if elapsed_ms > 0 {
+                let elapsed_seconds = elapsed_ms as f64 / 1000.0;
+                sample.download_bps =
+                    TrafficAggregator::calculate_bps(delta_received, elapsed_seconds);
+                sample.upload_bps =
+                    TrafficAggregator::calculate_bps(delta_sent, elapsed_seconds);
                 sample.session_download_bytes =
                     sample.session_download_bytes.saturating_add(delta_received);
                 sample.session_upload_bytes =

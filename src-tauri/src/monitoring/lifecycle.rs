@@ -1,9 +1,10 @@
 pub struct LifecycleManager;
 
 impl LifecycleManager {
-    /// Gracefully releases all ETW tracing handles, sockets, and background workers
-    /// before process termination.
+    /// Stop the ETW tracing session owned by this process before it exits.
     pub fn cleanup() {
-        // Stop trace sessions, close open socket handles, flush database buffers
+        if let Err(error) = crate::monitoring::etw::EtwSessionManager::stop_session() {
+            eprintln!("NetScope X could not stop ETW during shutdown: {error}");
+        }
     }
 }
