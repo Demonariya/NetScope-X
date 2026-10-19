@@ -67,7 +67,9 @@ pub fn run() {
                     eprintln!("NetScope X: show existing window on second launch failed: {error}");
                 }
                 if let Err(error) = window.unminimize() {
-                    eprintln!("NetScope X: unminimize existing window on second launch failed: {error}");
+                    eprintln!(
+                        "NetScope X: unminimize existing window on second launch failed: {error}"
+                    );
                 }
                 if let Err(error) = window.set_focus() {
                     eprintln!("NetScope X: focus existing window on second launch failed: {error}");
