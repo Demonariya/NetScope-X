@@ -54,7 +54,6 @@ struct ProcessTrafficSample {
 
 static PROCESS_SAMPLES: OnceLock<Mutex<HashMap<u32, ProcessTrafficSample>>> = OnceLock::new();
 
-
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExecutableIconRecord {
