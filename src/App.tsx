@@ -209,14 +209,29 @@ export default function App() {
       setProcesses(procs);
       setConnections(procs.flatMap(process => process.connections ?? []));
       setHistory(hist);
-      setSettings(cfg);
       const savedAdapterId = cfg.monitoring.adapterId || 'auto';
-      setSelectedAdapterId(
+      const resolvedAdapterId =
         savedAdapterId === 'auto' || adp.some(adapter => adapter.id === savedAdapterId)
           ? savedAdapterId
-          : 'auto'
-      );
-      setIsMonitoring(cfg.monitoring.enabled);
+          : 'auto';
+      const effectiveConfig =
+        cfg.monitoring.adapterId === resolvedAdapterId
+          ? cfg
+          : { ...cfg, monitoring: { ...cfg.monitoring, adapterId: resolvedAdapterId } };
+
+      setSettings(effectiveConfig);
+      setSelectedAdapterId(resolvedAdapterId);
+      setIsMonitoring(effectiveConfig.monitoring.enabled);
+
+      if (effectiveConfig !== cfg) {
+        void api.saveSettings(effectiveConfig).catch(error => {
+          addToast(
+            'Adapter Preference Not Saved',
+            error instanceof Error ? error.message : String(error),
+            'error'
+          );
+        });
+      }
 
       let storedAccent: string | null = null;
       let localSavedTheme: string | null = null;
@@ -241,12 +256,14 @@ export default function App() {
     let inFlight = false;
     let cancelled = false;
     let adapterRecoveryInFlight = false;
+    let statsQueryFailureNotified = false;
     const pollStats = async () => {
       if (inFlight || cancelled) return;
       inFlight = true;
       try {
         const stats = await api.getLiveStats(selectedAdapterId);
         if (cancelled) return;
+        statsQueryFailureNotified = false;
         setLiveStats(stats);
         setSpeedHistory(prev => {
           const time = formatTime(stats.timestamp);
@@ -258,8 +275,16 @@ export default function App() {
           selectedAdapterId !== 'auto' &&
           /Selected interface .* no longer exists/i.test(detail);
 
-        if (!selectedInterfaceDisappeared || adapterRecoveryInFlight) {
-          console.warn('Network counter sample failed:', error);
+        if (!selectedInterfaceDisappeared) {
+          console.error('Network counter sample failed:', error);
+          if (!cancelled && !statsQueryFailureNotified) {
+            statsQueryFailureNotified = true;
+            addToast('Network Monitoring Unavailable', detail, 'error');
+          }
+          return;
+        }
+        if (adapterRecoveryInFlight) {
+          console.warn('Skipping duplicate adapter recovery while the previous attempt is active.');
           return;
         }
 
