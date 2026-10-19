@@ -2,6 +2,7 @@ use crate::monitoring::etw::EtwSessionManager;
 use crate::network::connections::SocketConnectionRecord;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -52,6 +53,129 @@ struct ProcessTrafficSample {
 }
 
 static PROCESS_SAMPLES: OnceLock<Mutex<HashMap<u32, ProcessTrafficSample>>> = OnceLock::new();
+
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExecutableIconRecord {
+    path: String,
+    icon_base64: String,
+}
+
+static PROCESS_ICON_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+static ICON_EXTRACTION_DISABLED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(windows)]
+fn extract_executable_icons(paths: &[String]) -> Result<Vec<ExecutableIconRecord>, String> {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+
+    let json = serde_json::to_vec(paths)
+        .map_err(|error| format!("Could not encode executable paths for icon extraction: {error}"))?;
+    let encoded_paths = STANDARD.encode(json);
+    let script = format!(
+        r#"
+$ErrorActionPreference = 'Stop'
+$pathJson = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{encoded_paths}'))
+$paths = @($pathJson | ConvertFrom-Json)
+try { Add-Type -AssemblyName System.Drawing -ErrorAction Stop } catch {}
+$rows = @(
+  foreach ($rawPath in $paths) {
+    $path = [string]$rawPath
+    $iconBase64 = ''
+    try {
+      if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path -LiteralPath $path -PathType Leaf)) {
+        $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path)
+        if ($null -ne $icon) {
+          $bitmap = $icon.ToBitmap()
+          try {
+            $stream = New-Object System.IO.MemoryStream
+            try {
+              $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+              $iconBase64 = [System.Convert]::ToBase64String($stream.ToArray())
+            } finally {
+              $stream.Dispose()
+            }
+          } finally {
+            $bitmap.Dispose()
+            $icon.Dispose()
+          }
+        }
+      }
+    } catch {
+      $iconBase64 = ''
+    }
+    [pscustomobject]@{ path = $path; iconBase64 = $iconBase64 }
+  }
+)
+ConvertTo-Json -InputObject @($rows) -Depth 3 -Compress
+"#
+    );
+
+    let output = crate::windows_utils::run_powershell(&script)?;
+    serde_json::from_str::<Vec<ExecutableIconRecord>>(&output)
+        .map_err(|error| format!("Invalid executable icon JSON: {error}"))
+}
+
+fn populate_process_icons(processes: &mut [ProcessNetworkUsage]) {
+    let mut missing_paths = Vec::new();
+    let mut seen = HashSet::new();
+
+    {
+        let cache = match PROCESS_ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+            Ok(cache) => cache,
+            Err(_) => return,
+        };
+
+        for process in processes.iter() {
+            let path = process.full_path.trim();
+            if path.is_empty() {
+                continue;
+            }
+            let key = path.to_lowercase();
+            if !cache.contains_key(&key) && seen.insert(key) {
+                missing_paths.push(path.to_string());
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    if !missing_paths.is_empty() && !ICON_EXTRACTION_DISABLED.load(Ordering::Relaxed) {
+        match extract_executable_icons(&missing_paths) {
+            Ok(records) => {
+                if let Ok(mut cache) =
+                    PROCESS_ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock()
+                {
+                    for path in &missing_paths {
+                        cache.entry(path.to_lowercase()).or_insert_with(String::new);
+                    }
+                    for record in records {
+                        cache.insert(record.path.to_lowercase(), record.icon_base64);
+                    }
+                }
+            }
+            Err(error) => {
+                ICON_EXTRACTION_DISABLED.store(true, Ordering::Relaxed);
+                eprintln!("NetScope X executable icons are unavailable: {error}");
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    let _ = missing_paths;
+
+    if let Ok(cache) = PROCESS_ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+        for process in processes {
+            if let Some(icon_base64) = cache.get(&process.full_path.to_lowercase()) {
+                process.icon = if icon_base64.is_empty() {
+                    String::new()
+                } else {
+                    format!("data:image/png;base64,{icon_base64}")
+                };
+            }
+        }
+    }
+}
 
 fn apply_etw_traffic_samples(processes: &mut [ProcessNetworkUsage]) -> Result<(), String> {
     let active_pids: HashSet<u32> = processes.iter().map(|process| process.pid).collect();
@@ -283,6 +407,8 @@ ConvertTo-Json -InputObject @($rows) -Depth 5 -Compress
         let json = crate::windows_utils::run_powershell(script)?;
         let mut processes = serde_json::from_str::<Vec<Self>>(&json)
             .map_err(|error| format!("Invalid Windows process JSON: {error}"))?;
+
+        populate_process_icons(&mut processes);
 
         let connections = SocketConnectionRecord::get_active_connections()?;
         for process in &mut processes {
