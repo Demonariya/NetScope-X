@@ -27,9 +27,7 @@ fn earliest_date(range: &str, today: chrono::NaiveDate) -> chrono::NaiveDate {
 impl HistoryStorage {
     pub fn get_history(conn: &Connection, range: &str) -> Result<Vec<TrafficHistoryEntry>> {
         let today = chrono::Local::now().date_naive();
-        let earliest = earliest_date(range, today)
-            .format("%Y-%m-%d")
-            .to_string();
+        let earliest = earliest_date(range, today).format("%Y-%m-%d").to_string();
 
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, date_str, hour_str, download_bytes, upload_bytes, top_app
@@ -105,8 +103,8 @@ mod tests {
             .expect("history row should be inserted");
         }
 
-        let seven_days = HistoryStorage::get_history(&connection, "7d")
-            .expect("seven-day query should succeed");
+        let seven_days =
+            HistoryStorage::get_history(&connection, "7d").expect("seven-day query should succeed");
         let thirty_days = HistoryStorage::get_history(&connection, "30d")
             .expect("thirty-day query should succeed");
 
