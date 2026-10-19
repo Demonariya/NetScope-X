@@ -70,8 +70,9 @@ fn extract_executable_icons(paths: &[String]) -> Result<Vec<ExecutableIconRecord
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
 
-    let json = serde_json::to_vec(paths)
-        .map_err(|error| format!("Could not encode executable paths for icon extraction: {error}"))?;
+    let json = serde_json::to_vec(paths).map_err(|error| {
+        format!("Could not encode executable paths for icon extraction: {error}")
+    })?;
     let encoded_paths = STANDARD.encode(json);
     // Replace a marker rather than interpolating a PowerShell script with Rust
     // format!; PowerShell's braces must remain untouched.
@@ -123,7 +124,10 @@ fn populate_process_icons(processes: &mut [ProcessNetworkUsage]) {
     let mut seen = HashSet::new();
 
     {
-        let cache = match PROCESS_ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+        let cache = match PROCESS_ICON_CACHE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+        {
             Ok(cache) => cache,
             Err(_) => return,
         };
@@ -144,8 +148,9 @@ fn populate_process_icons(processes: &mut [ProcessNetworkUsage]) {
     if !missing_paths.is_empty() && !ICON_EXTRACTION_DISABLED.load(Ordering::Relaxed) {
         match extract_executable_icons(&missing_paths) {
             Ok(records) => {
-                if let Ok(mut cache) =
-                    PROCESS_ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock()
+                if let Ok(mut cache) = PROCESS_ICON_CACHE
+                    .get_or_init(|| Mutex::new(HashMap::new()))
+                    .lock()
                 {
                     for path in &missing_paths {
                         cache.entry(path.to_lowercase()).or_insert_with(String::new);
@@ -165,7 +170,10 @@ fn populate_process_icons(processes: &mut [ProcessNetworkUsage]) {
     #[cfg(not(windows))]
     let _ = missing_paths;
 
-    if let Ok(cache) = PROCESS_ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+    if let Ok(cache) = PROCESS_ICON_CACHE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+    {
         for process in processes {
             if let Some(icon_base64) = cache.get(&process.full_path.to_lowercase()) {
                 process.icon = if icon_base64.is_empty() {
