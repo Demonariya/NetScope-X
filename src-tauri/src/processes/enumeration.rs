@@ -243,10 +243,22 @@ $rows = @(
       $isBlocked = $blockedPrograms.ContainsKey($path.ToLowerInvariant())
     }
 
+    $friendlyName = [string]$process.ProcessName
+    if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path -LiteralPath $path -PathType Leaf)) {
+      try {
+        $fileInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($path)
+        if (-not [string]::IsNullOrWhiteSpace($fileInfo.FileDescription)) {
+          $friendlyName = [string]$fileInfo.FileDescription
+        } elseif (-not [string]::IsNullOrWhiteSpace($fileInfo.ProductName)) {
+          $friendlyName = [string]$fileInfo.ProductName
+        }
+      } catch {}
+    }
+
     [pscustomobject]@{
       pid = [uint32]$process.Id
       name = "$($process.ProcessName).exe"
-      friendlyName = [string]$process.ProcessName
+      friendlyName = $friendlyName
       exeName = "$($process.ProcessName).exe"
       fullPath = $path
       icon = ''

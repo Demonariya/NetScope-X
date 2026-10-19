@@ -1,7 +1,6 @@
 /**
- * High-definition Windows process icons mapping.
- * Provides authentic, crisp brand icons for major Windows executables
- * and a deterministic Windows Shell fallback for custom processes.
+ * Display-only SVG fallbacks selected by executable name.
+ * These are not extracted from the actual Windows executable or shell icon.
  */
 
 export function getProcessIconSvg(exeName: string): string {
