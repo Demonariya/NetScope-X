@@ -27,6 +27,8 @@ interface HistoryTabProps {
   onRangeChange: (range: 'today' | '7d' | '30d' | 'all') => void;
   onClearHistory: () => void;
   onShowToast: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+  accentColor?: string;
+  currentTheme?: 'dark' | 'light' | 'system';
 }
 
 export const HistoryTab: React.FC<HistoryTabProps> = ({
@@ -35,7 +37,15 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
   onRangeChange,
   onClearHistory,
   onShowToast,
+  accentColor = '#38bdf8',
+  currentTheme = 'dark',
 }) => {
+  const isLight =
+    currentTheme === 'light' ||
+    (currentTheme === 'system' &&
+      typeof window !== 'undefined' &&
+      !window.matchMedia('(prefers-color-scheme: dark)').matches);
+
   const dateRange = historyRange;
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
@@ -206,19 +216,28 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
               <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -22, bottom: 0 }}>
                 <defs>
                   <linearGradient id="histDown" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
+                    <stop offset="5%" stopColor={accentColor} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={accentColor} stopOpacity={0.0} />
                   </linearGradient>
                   <linearGradient id="histUp" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#2dd4bf" stopOpacity={0.3} />
                     <stop offset="95%" stopColor="#2dd4bf" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="time" stroke="#475569" fontSize={9} tickLine={false} />
-                <YAxis stroke="#475569" fontSize={9} tickLine={false} tickFormatter={val => `${val}M`} />
-                <Tooltip contentStyle={{ backgroundColor: '#090d16', borderColor: '#334155', borderRadius: '8px', fontSize: '11px' }} labelStyle={{ color: '#94a3b8' }}
-                  formatter={(value, name) => [`${value} MB`, name === 'downMB' ? 'Download' : 'Upload']} />
-                <Area type="monotone" dataKey="downMB" stroke="#38bdf8" strokeWidth={2} fillOpacity={1} fill="url(#histDown)" name="Download (MB)" />
+                <XAxis dataKey="time" stroke={isLight ? '#94a3b8' : '#475569'} fontSize={9} tickLine={false} />
+                <YAxis stroke={isLight ? '#94a3b8' : '#475569'} fontSize={9} tickLine={false} tickFormatter={val => `${val}M`} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: isLight ? '#ffffff' : '#090d16',
+                    borderColor: isLight ? '#cbd5e1' : '#334155',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    color: isLight ? '#0f172a' : '#f1f5f9',
+                  }}
+                  labelStyle={{ color: isLight ? '#475569' : '#94a3b8' }}
+                  formatter={(value, name) => [`${value} MB`, name === 'downMB' ? 'Download' : 'Upload']}
+                />
+                <Area type="monotone" dataKey="downMB" stroke={accentColor} strokeWidth={2} fillOpacity={1} fill="url(#histDown)" name="Download (MB)" />
                 <Area type="monotone" dataKey="upMB" stroke="#2dd4bf" strokeWidth={2} fillOpacity={1} fill="url(#histUp)" name="Upload (MB)" />
               </AreaChart>
             </ResponsiveContainer>

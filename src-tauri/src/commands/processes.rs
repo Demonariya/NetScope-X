@@ -47,30 +47,34 @@ pub async fn toggle_process_block(
         return Err("The process executable name is missing.".to_string());
     }
 
+    let clean_exe = exe_name.trim().replace('\'', "''");
+
     let script = format!(
         r#"
 $targetPid = {process_id}
+$targetExe = '{clean_exe}'
 $legacyRuleOut = "NetScopeX-Blocked-$targetPid-out"
 $legacyRuleIn = "NetScopeX-Blocked-$targetPid-in"
-$process = Get-CimInstance Win32_Process -Filter "ProcessId = $targetPid" -ErrorAction Stop
-if ($null -eq $process) {{ throw "Process PID $targetPid is no longer running." }}
-$program = [string]$process.ExecutablePath
-if ([string]::IsNullOrWhiteSpace($program) -or -not (Test-Path -LiteralPath $program -PathType Leaf)) {{
-  throw "Windows did not provide a valid executable path for PID $targetPid."
-}}
-$program = [System.IO.Path]::GetFullPath($program)
-$hashAlgorithm = [System.Security.Cryptography.SHA256]::Create()
-$programHash = [BitConverter]::ToString($hashAlgorithm.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($program.ToLowerInvariant()))).Replace('-', '').ToLowerInvariant()
-$hashAlgorithm.Dispose()
-$ruleOut = "NetScopeX-Blocked-$programHash-out"
-$ruleIn = "NetScopeX-Blocked-$programHash-in"
-if (-not {block_value}) {{
-  Get-NetFirewallRule -DisplayName $ruleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-  Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-  Get-NetFirewallRule -DisplayName $legacyRuleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-  Get-NetFirewallRule -DisplayName $legacyRuleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-  [pscustomobject]@{{ success = $true }} | ConvertTo-Json -Compress
-}} else {{
+
+$process = Get-CimInstance Win32_Process -Filter "ProcessId = $targetPid" -ErrorAction SilentlyContinue
+
+if ({block_value}) {{
+  if ($null -eq $process) {{ throw "Process PID $targetPid is no longer running." }}
+  $procName = [string]$process.Name
+  if (-not [string]::IsNullOrWhiteSpace($targetExe) -and $procName -ne $targetExe -and "$procName.exe" -ne $targetExe -and $targetExe -ne "$procName.exe") {{
+    throw "Process identity mismatch: PID $targetPid is '$procName', expected '$targetExe'. Block cancelled to avoid modifying another process."
+  }}
+  $program = [string]$process.ExecutablePath
+  if ([string]::IsNullOrWhiteSpace($program) -or -not (Test-Path -LiteralPath $program -PathType Leaf)) {{
+    throw "Windows did not provide a valid executable path for PID $targetPid."
+  }}
+  $program = [System.IO.Path]::GetFullPath($program)
+  $hashAlgorithm = [System.Security.Cryptography.SHA256]::Create()
+  $programHash = [BitConverter]::ToString($hashAlgorithm.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($program.ToLowerInvariant()))).Replace('-', '').ToLowerInvariant()
+  $hashAlgorithm.Dispose()
+  $ruleOut = "NetScopeX-Blocked-$programHash-out"
+  $ruleIn = "NetScopeX-Blocked-$programHash-in"
+
   try {{
     Get-NetFirewallRule -DisplayName $ruleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
     Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
@@ -84,6 +88,33 @@ if (-not {block_value}) {{
     Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
     throw
   }}
+}} else {{
+  # Unblock operation: remove rules by PID or hash or matching executable name
+  if ($null -ne $process -and -not [string]::IsNullOrWhiteSpace([string]$process.ExecutablePath)) {{
+    $program = [System.IO.Path]::GetFullPath([string]$process.ExecutablePath)
+    $hashAlgorithm = [System.Security.Cryptography.SHA256]::Create()
+    $programHash = [BitConverter]::ToString($hashAlgorithm.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($program.ToLowerInvariant()))).Replace('-', '').ToLowerInvariant()
+    $hashAlgorithm.Dispose()
+    $ruleOut = "NetScopeX-Blocked-$programHash-out"
+    $ruleIn = "NetScopeX-Blocked-$programHash-in"
+    Get-NetFirewallRule -DisplayName $ruleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    Get-NetFirewallRule -DisplayName $ruleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  }}
+  Get-NetFirewallRule -DisplayName $legacyRuleOut -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  Get-NetFirewallRule -DisplayName $legacyRuleIn -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+
+  if (-not [string]::IsNullOrWhiteSpace($targetExe)) {{
+    foreach ($rule in @(Get-NetFirewallRule -DisplayName 'NetScopeX-Blocked-*-out' -ErrorAction SilentlyContinue)) {{
+      $filter = $rule | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue
+      if ($null -ne $filter -and ([string]$filter.Program -like "*\$targetExe" -or [string]$filter.Program -like "*\$($targetExe).exe")) {{
+        $outName = [string]$rule.DisplayName
+        $inName = $outName -replace '-out$', '-in'
+        Remove-NetFirewallRule -DisplayName $outName -ErrorAction SilentlyContinue
+        Remove-NetFirewallRule -DisplayName $inName -ErrorAction SilentlyContinue
+      }}
+    }}
+  }}
+  [pscustomobject]@{{ success = $true }} | ConvertTo-Json -Compress
 }}
 "#,
         block_value = if block { "$true" } else { "$false" }

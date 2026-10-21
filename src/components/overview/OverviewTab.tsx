@@ -30,6 +30,7 @@ interface OverviewTabProps {
   onSelectPingTarget: (target: string) => void;
   speedHistory: { time: string; downBps: number; upBps: number }[];
   accentColor?: string;
+  currentTheme?: 'dark' | 'light' | 'system';
 }
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
@@ -43,7 +44,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   onSelectPingTarget,
   speedHistory,
   accentColor = '#38bdf8',
+  currentTheme = 'dark',
 }) => {
+  const isLight =
+    currentTheme === 'light' ||
+    (currentTheme === 'system' &&
+      typeof window !== 'undefined' &&
+      !window.matchMedia('(prefers-color-scheme: dark)').matches);
+
   const [chartTimeframe, setChartTimeframe] = useState<'30s' | '60s' | '5m'>('30s');
   const [customPingHost, setCustomPingHost] = useState('');
 
@@ -301,21 +309,22 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <stop offset="95%" stopColor="#2dd4bf" stopOpacity={0.0} />
                 </linearGradient>
               </defs>
-              <XAxis dataKey="time" stroke="#475569" fontSize={9} tickLine={false} />
+              <XAxis dataKey="time" stroke={isLight ? '#94a3b8' : '#475569'} fontSize={9} tickLine={false} />
               <YAxis
-                stroke="#475569"
+                stroke={isLight ? '#94a3b8' : '#475569'}
                 fontSize={9}
                 tickLine={false}
                 tickFormatter={val => `${val}K`}
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#090d16',
-                  borderColor: '#334155',
+                  backgroundColor: isLight ? '#ffffff' : '#090d16',
+                  borderColor: isLight ? '#cbd5e1' : '#334155',
                   borderRadius: '8px',
                   fontSize: '11px',
+                  color: isLight ? '#0f172a' : '#f1f5f9',
                 }}
-                labelStyle={{ color: '#94a3b8' }}
+                labelStyle={{ color: isLight ? '#475569' : '#94a3b8' }}
                 formatter={(value: any, name: any) => [
                   `${value} KB/s`,
                   name === 'downKbps' ? 'Download' : 'Upload',

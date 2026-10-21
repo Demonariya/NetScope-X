@@ -19,9 +19,22 @@ import { formatBytes } from '../../utils/formatters';
 interface TrafficTabProps {
   history: TrafficHistoryRecord[];
   processes: ProcessNetworkUsage[];
+  accentColor?: string;
+  currentTheme?: 'dark' | 'light' | 'system';
 }
 
-export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) => {
+export const TrafficTab: React.FC<TrafficTabProps> = ({
+  history,
+  processes,
+  accentColor = '#38bdf8',
+  currentTheme = 'dark',
+}) => {
+  const isLight =
+    currentTheme === 'light' ||
+    (currentTheme === 'system' &&
+      typeof window !== 'undefined' &&
+      !window.matchMedia('(prefers-color-scheme: dark)').matches);
+
   // These percentages represent live endpoint counts, not bandwidth volume.
   const totalConns = processes.reduce((acc, p) => acc + (p.connections?.length || 0), 0);
   const tcpConns = processes.reduce(
@@ -136,22 +149,23 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({ history, processes }) =>
           <div className="h-44 w-full pt-1">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={hourlyData} margin={{ top: 5, right: 5, left: -22, bottom: 0 }}>
-              <XAxis dataKey="hour" stroke="#475569" fontSize={9} tickLine={false} />
-              <YAxis stroke="#475569" fontSize={9} tickLine={false} tickFormatter={val => `${val}M`} />
+              <XAxis dataKey="hour" stroke={isLight ? '#94a3b8' : '#475569'} fontSize={9} tickLine={false} />
+              <YAxis stroke={isLight ? '#94a3b8' : '#475569'} fontSize={9} tickLine={false} tickFormatter={val => `${val}M`} />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#090d16',
-                  borderColor: '#334155',
+                  backgroundColor: isLight ? '#ffffff' : '#090d16',
+                  borderColor: isLight ? '#cbd5e1' : '#334155',
                   borderRadius: '8px',
                   fontSize: '11px',
+                  color: isLight ? '#0f172a' : '#f1f5f9',
                 }}
-                labelStyle={{ color: '#94a3b8' }}
+                labelStyle={{ color: isLight ? '#475569' : '#94a3b8' }}
                 formatter={(val: any, name: any) => [
                   `${val} MB`,
                   name === 'downMB' ? 'Download' : 'Upload',
                 ]}
               />
-              <Bar dataKey="downMB" fill="#38bdf8" radius={[3, 3, 0, 0]} name="Download" />
+              <Bar dataKey="downMB" fill={accentColor} radius={[3, 3, 0, 0]} name="Download" />
               <Bar dataKey="upMB" fill="#2dd4bf" radius={[3, 3, 0, 0]} name="Upload" />
             </BarChart>
           </ResponsiveContainer>

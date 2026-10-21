@@ -577,7 +577,7 @@ export default function App() {
   };
 
   // Accent selection is applied immediately and persisted independently so it survives restarts.
-  const handleAccentColorChange = (color: string) => {
+  const handleAccentColorChange = async (color: string) => {
     const normalized = normalizeHexColor(color);
     if (!normalized) return;
     setAccentColor(normalized);
@@ -585,6 +585,28 @@ export default function App() {
       localStorage.setItem('netscope_accent_color', normalized);
     } catch {
       // The current session still uses the selected accent when storage is unavailable.
+    }
+    if (settings) {
+      const updated = {
+        ...settings,
+        appearance: {
+          ...settings.appearance,
+          accentColor: normalized,
+        },
+      };
+      setSettings(updated);
+      try {
+        await api.saveSettings(updated);
+        addToast('Accent Palette Updated', `Active accent set to ${normalized}`, 'success');
+      } catch (error) {
+        addToast(
+          'Accent Not Saved',
+          error instanceof Error ? error.message : String(error),
+          'error'
+        );
+      }
+    } else {
+      addToast('Accent Palette Updated', `Active accent set to ${normalized}`, 'success');
     }
   };
 
@@ -712,12 +734,26 @@ export default function App() {
     }
   };
 
+  const isLightEffective =
+    theme === 'light' ||
+    (theme === 'system' &&
+      typeof window !== 'undefined' &&
+      !window.matchMedia('(prefers-color-scheme: dark)').matches);
+
   return (
-    <div className="min-h-screen w-full bg-[#070a0f] flex flex-col items-center justify-center overflow-hidden font-sans text-slate-100 p-0 select-none">
+    <div
+      className={`min-h-screen w-full flex flex-col items-center justify-center overflow-hidden font-sans p-0 select-none transition-colors duration-200 ${
+        isLightEffective ? 'bg-slate-200 text-slate-900' : 'bg-[#070a0f] text-slate-100'
+      }`}
+    >
       {/* Strict 405 × 720 px, 9:16 Portrait Canvas Frame */}
       <div
         style={{ width: '405px', height: '720px' }}
-        className="max-w-full max-h-[100dvh] aspect-[9/16] flex flex-col bg-[#0b0f17] overflow-hidden relative shadow-2xl border border-slate-800/80 rounded-none sm:rounded-2xl mx-auto"
+        className={`max-w-full max-h-[100dvh] aspect-[9/16] flex flex-col overflow-hidden relative shadow-2xl rounded-none sm:rounded-2xl mx-auto border transition-colors duration-200 ${
+          isLightEffective
+            ? 'bg-white border-slate-300 text-slate-900 shadow-slate-400/40'
+            : 'bg-[#0b0f17] border-slate-800/80 text-slate-100 shadow-black/60'
+        }`}
       >
         {/* Native Windows Custom Title Bar */}
         <TitleBar
@@ -745,6 +781,7 @@ export default function App() {
               onSelectPingTarget={handleSelectPingTarget}
               speedHistory={speedHistory}
               accentColor={accentColor}
+              currentTheme={theme}
             />
           )}
 
@@ -758,7 +795,12 @@ export default function App() {
           )}
 
           {activeTab === 'traffic' && (
-            <TrafficTab history={history} processes={processes} />
+            <TrafficTab
+              history={history}
+              processes={processes}
+              accentColor={accentColor}
+              currentTheme={theme}
+            />
           )}
 
           {activeTab === 'connections' && (
@@ -775,6 +817,8 @@ export default function App() {
               onRangeChange={setHistoryRange}
               onClearHistory={handleClearHistory}
               onShowToast={(t, m, type) => addToast(t, m, type ?? 'info')}
+              accentColor={accentColor}
+              currentTheme={theme}
             />
           )}
 

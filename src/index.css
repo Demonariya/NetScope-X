@@ -82,7 +82,13 @@ html.light [class*="bg-slate-950/95"],
 
 /* Main Cards & Panels */
 html.light [class*="bg-slate-900"],
-[data-theme="light"] [class*="bg-slate-900"] {
+[data-theme="light"] [class*="bg-slate-900"],
+html.light .bg-slate-900,
+[data-theme="light"] .bg-slate-900,
+html.light .bg-slate-900\/80,
+[data-theme="light"] .bg-slate-900\/80,
+html.light .bg-slate-900\/70,
+[data-theme="light"] .bg-slate-900\/70 {
   background-color: #ffffff !important;
   color: #0f172a !important;
   border-color: #e2e8f0 !important;
@@ -94,10 +100,18 @@ html.light [class*="bg-slate-950/60"],
 [data-theme="light"] [class*="bg-slate-950/60"],
 html.light [class*="bg-slate-950/40"],
 [data-theme="light"] [class*="bg-slate-950/40"],
+html.light [class*="bg-slate-950/70"],
+[data-theme="light"] [class*="bg-slate-950/70"],
 html.light [class*="bg-slate-950/80"],
 [data-theme="light"] [class*="bg-slate-950/80"],
 html.light .bg-slate-950,
-[data-theme="light"] .bg-slate-950 {
+[data-theme="light"] .bg-slate-950,
+html.light .bg-slate-950\/70,
+[data-theme="light"] .bg-slate-950\/70,
+html.light .bg-slate-950\/40,
+[data-theme="light"] .bg-slate-950\/40,
+html.light .bg-slate-950\/80,
+[data-theme="light"] .bg-slate-950\/80 {
   background-color: #f8fafc !important;
   color: #1e293b !important;
   border-color: #e2e8f0 !important;
@@ -107,7 +121,15 @@ html.light .bg-slate-950,
 html.light [class*="border-slate-800"],
 [data-theme="light"] [class*="border-slate-800"],
 html.light [class*="border-slate-700"],
-[data-theme="light"] [class*="border-slate-700"] {
+[data-theme="light"] [class*="border-slate-700"],
+html.light .border-slate-800,
+[data-theme="light"] .border-slate-800,
+html.light .border-slate-800\/80,
+[data-theme="light"] .border-slate-800\/80,
+html.light .border-slate-800\/60,
+[data-theme="light"] .border-slate-800\/60,
+html.light .border-slate-800\/50,
+[data-theme="light"] .border-slate-800\/50 {
   border-color: #e2e8f0 !important;
 }
 

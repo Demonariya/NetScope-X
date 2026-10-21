@@ -29,5 +29,7 @@ export function getAccentCssVariables(input: unknown): Record<string, string> {
     '--color-sky-800': darker(0.41),
     '--color-sky-900': darker(0.56),
     '--color-sky-950': darker(0.76),
+    '--color-accent': accent,
+    '--accent-color': accent,
   };
 }

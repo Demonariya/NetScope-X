@@ -27,17 +27,14 @@ $requestedId = '__NETSCOPE_REQUESTED_ID__'
 $adapters = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop | Where-Object { $_.Status -ne 'Not Present' })
 if ($adapters.Count -eq 0) { throw 'Windows did not return any network adapters.' }
 
-$configByIndex = @{}
+$defaultGatewayByInterface = @{}
 try {
-  $ipConfigurations = @(Get-NetIPConfiguration -ErrorAction SilentlyContinue 2>$null)
-} catch {
-  $ipConfigurations = @()
-}
-foreach ($config in $ipConfigurations) {
-  if ($null -ne $config -and $null -ne $config.InterfaceIndex) {
-    $configByIndex[[string]$config.InterfaceIndex] = $config
+  foreach ($route in @(Get-NetRoute -DestinationPrefix @('0.0.0.0/0', '::/0') -ErrorAction SilentlyContinue)) {
+    if ($null -ne $route -and $null -ne $route.InterfaceIndex -and -not [string]::IsNullOrWhiteSpace([string]$route.NextHop)) {
+      $defaultGatewayByInterface[[string]$route.InterfaceIndex] = $true
+    }
   }
-}
+} catch {}
 
 if ($requestedId -ne 'auto') {
   $adapter = $adapters | Where-Object { [string]$_.ifIndex -eq $requestedId } | Select-Object -First 1
@@ -50,8 +47,7 @@ if ($requestedId -ne 'auto') {
     $adapters |
       Sort-Object @{
         Expression = {
-          $configuration = $configByIndex[[string]$_.ifIndex]
-          if ($null -ne $configuration -and (@($configuration.IPv4DefaultGateway | Where-Object { $_.NextHop }).Count -gt 0 -or @($configuration.IPv6DefaultGateway | Where-Object { $_.NextHop }).Count -gt 0)) { 0 } else { 1 }
+          if ($defaultGatewayByInterface.ContainsKey([string]$_.ifIndex)) { 0 } else { 1 }
         }
       }, @{
         Expression = { if ($_.Status -eq 'Up') { 0 } else { 1 } }

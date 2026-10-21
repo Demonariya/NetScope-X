@@ -51,6 +51,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         accentColor: color,
       },
     }));
+    onShowToast('Accent Palette Updated', `Active accent set to ${color}`, 'success');
   };
 
   const handleToggle = (path: string[]) => {
@@ -74,6 +75,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         theme,
       },
     }));
+    onShowToast('Theme Mode Updated', `Switched to ${theme} theme`, 'success');
   };
 
   const handleSave = async () => {
@@ -192,7 +194,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 { hex: '#ec4899', label: 'Pink' },
                 { hex: '#f59e0b', label: 'Amber' },
               ].map(({ hex, label }) => {
-                const isSelected = accentColor === hex;
+                const isSelected = accentColor.toLowerCase() === hex.toLowerCase();
                 return (
                   <button
                     key={hex}
