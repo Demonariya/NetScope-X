@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { SocketConnection } from '../../types/network';
 import { getProcessIconSvg } from '../../utils/processIcons';
+import { ProcessIcon } from '../common/ProcessIcon';
 
 interface ConnectionsTabProps {
   connections: SocketConnection[];
@@ -152,11 +153,10 @@ export const ConnectionsTab: React.FC<ConnectionsTabProps> = ({
                       {conn.protocol}
                     </span>
 
-                    <img
-                      src={iconSrc}
-                      alt={conn.processName}
-                      className="w-4 h-4 object-contain shrink-0"
-                      referrerPolicy="no-referrer"
+                    <ProcessIcon
+                      exeName={conn.processName}
+                      containerClassName="w-5 h-5 rounded bg-slate-950 p-0.5 border border-slate-800 shrink-0 flex items-center justify-center overflow-hidden"
+                      className="w-3.5 h-3.5"
                     />
 
                     <div className="min-w-0 truncate">

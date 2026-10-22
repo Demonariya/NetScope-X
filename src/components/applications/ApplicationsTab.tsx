@@ -15,6 +15,7 @@ import {
 import { ProcessNetworkUsage } from '../../types/network';
 import { formatBytes, formatSpeed } from '../../utils/formatters';
 import { getProcessIconSvg } from '../../utils/processIcons';
+import { ProcessIcon } from '../common/ProcessIcon';
 
 interface ApplicationsTabProps {
   processes: ProcessNetworkUsage[];
@@ -240,14 +241,12 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
                         )}
                       </button>
 
-                      <div className="w-8 h-8 rounded-lg bg-slate-950 p-1 border border-slate-800 shrink-0 flex items-center justify-center overflow-hidden">
-                        <img
-                          src={iconSrc}
-                          alt={proc.friendlyName}
-                          className="w-6 h-6 object-contain"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
+                      <ProcessIcon
+                        exeName={proc.exeName}
+                        icon={proc.icon}
+                        containerClassName="w-8 h-8 rounded-lg bg-slate-950 p-1 border border-slate-800 shrink-0 flex items-center justify-center overflow-hidden"
+                        className="w-5 h-5"
+                      />
 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">

@@ -16,6 +16,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { motion, AnimatePresence } from 'motion/react';
 import { AdapterDiscoveryStatus, NetworkAdapter, NetworkStats, PingResult } from '../../types/network';
 import { formatBytes, formatSpeed, formatLatency, formatJitter, formatPercent } from '../../utils/formatters';
 
@@ -32,6 +33,33 @@ interface OverviewTabProps {
   accentColor?: string;
   currentTheme?: 'dark' | 'light' | 'system';
 }
+
+/**
+ * Animated metric value component that renders fluid vertical entry and exit transitions
+ * whenever the underlying numerical or textual value changes.
+ */
+const AnimatedValue: React.FC<{
+  value: string | number;
+  unit?: string;
+  className?: string;
+  unitClassName?: string;
+}> = ({ value, unit, className = '', unitClassName = '' }) => (
+  <span className="inline-flex items-baseline gap-1.5 overflow-hidden">
+    <AnimatePresence mode="popLayout" initial={false}>
+      <motion.span
+        key={String(value)}
+        initial={{ opacity: 0, y: -6, filter: 'blur(1px)' }}
+        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+        exit={{ opacity: 0, y: 6, filter: 'blur(1px)' }}
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        className={`inline-block tabular-nums ${className}`}
+      >
+        {value}
+      </motion.span>
+    </AnimatePresence>
+    {unit && <span className={unitClassName}>{unit}</span>}
+  </span>
+);
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
   adapters,
@@ -102,7 +130,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   return (
     <div className="space-y-3 p-3 w-full pb-16">
       {/* 1. Connection Status Card */}
-      <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 shadow-sm">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.25, ease: 'easeOut' }}
+        className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 shadow-sm"
+      >
         <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800/60">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-sky-400 shrink-0">
@@ -150,52 +184,71 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           </select>
         </div>
 
-        {/* Adapter Properties 2x2 Grid */}
-        <div className="grid grid-cols-2 gap-2 pt-2.5 text-xs">
-          <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-              Local IPv4
-            </span>
-            <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
-              {activeAdapter?.localIPv4 || '--'}
-            </span>
-          </div>
+        {/* Adapter Properties 2x2 Grid with smooth entry/exit transitions */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeAdapter?.id || 'auto'}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.2 }}
+            className="grid grid-cols-2 gap-2 pt-2.5 text-xs"
+          >
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
+                Local IPv4
+              </span>
+              <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
+                <AnimatedValue value={activeAdapter?.localIPv4 || '--'} />
+              </span>
+            </div>
 
-          <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-              Gateway
-            </span>
-            <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
-              {activeAdapter?.gateway || '--'}
-            </span>
-          </div>
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
+                Gateway
+              </span>
+              <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
+                <AnimatedValue value={activeAdapter?.gateway || '--'} />
+              </span>
+            </div>
 
-          <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-              {activeAdapter?.type === 'wifi' ? 'Wi-Fi Signal' : 'Link Speed'}
-            </span>
-            <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
-              {activeAdapter?.type === 'wifi'
-                ? `${activeAdapter.ssid || 'SSID unavailable'} (${activeAdapter.signalPercent != null ? `${activeAdapter.signalPercent}%` : 'signal unavailable'})`
-                : activeAdapter?.speedMbps ? `${activeAdapter.speedMbps} Mbps` : '--'}
-            </span>
-          </div>
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
+                {activeAdapter?.type === 'wifi' ? 'Wi-Fi Signal' : 'Link Speed'}
+              </span>
+              <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
+                <AnimatedValue
+                  value={
+                    activeAdapter?.type === 'wifi'
+                      ? `${activeAdapter.ssid || 'SSID unavailable'} (${activeAdapter.signalPercent != null ? `${activeAdapter.signalPercent}%` : 'signal unavailable'})`
+                      : activeAdapter?.speedMbps ? `${activeAdapter.speedMbps} Mbps` : '--'
+                  }
+                />
+              </span>
+            </div>
 
-          <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-              MAC Address
-            </span>
-            <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
-              {activeAdapter?.macAddress || '--'}
-            </span>
-          </div>
-        </div>
-      </div>
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
+                MAC Address
+              </span>
+              <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
+                <AnimatedValue value={activeAdapter?.macAddress || '--'} />
+              </span>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      </motion.div>
 
       {/* 2. Download and Upload Speed Cards */}
       <div className="space-y-2.5">
         {/* Download Rate Card */}
-        <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 relative overflow-hidden">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.25, delay: 0.05, ease: 'easeOut' }}
+          className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 relative overflow-hidden"
+        >
           <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
             <div className="flex items-center gap-1.5">
               <div className="w-5 h-5 rounded-md bg-sky-500/10 flex items-center justify-center text-sky-400 shrink-0">
@@ -204,29 +257,35 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <span className="font-medium text-slate-300">Download Throughput</span>
             </div>
             <span className="text-[11px] text-slate-400 font-mono">
-              Session: {liveStats ? formatBytes(liveStats.sessionDownloadBytes) : '--'}
+              Session: <AnimatedValue value={liveStats ? formatBytes(liveStats.sessionDownloadBytes) : '--'} />
             </span>
           </div>
 
-          <div className="flex items-baseline gap-2 mt-1.5">
-            <span className="text-3xl font-bold tracking-tight text-slate-100 font-mono tabular-nums">
-              {liveStats ? downSpeed.value : '--'}
-            </span>
-            <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 font-mono">
-              {liveStats ? downSpeed.unit : ''}
-            </span>
+          <div className="flex items-baseline gap-2 mt-1.5 h-9 overflow-hidden">
+            <AnimatedValue
+              value={liveStats ? downSpeed.value : '--'}
+              unit={liveStats ? downSpeed.unit : ''}
+              className="text-3xl font-bold tracking-tight text-slate-100 font-mono"
+              unitClassName="text-xs font-semibold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 font-mono"
+            />
           </div>
 
           <div className="mt-2.5 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
             <span>Measured Today:</span>
             <span className="font-mono text-slate-200 font-medium">
-              {liveStats ? formatBytes(liveStats.dailyDownloadBytes) : '--'}
+              <AnimatedValue value={liveStats ? formatBytes(liveStats.dailyDownloadBytes) : '--'} />
             </span>
           </div>
-        </div>
+        </motion.div>
 
         {/* Upload Rate Card */}
-        <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 relative overflow-hidden">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.25, delay: 0.1, ease: 'easeOut' }}
+          className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 relative overflow-hidden"
+        >
           <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
             <div className="flex items-center gap-1.5">
               <div className="w-5 h-5 rounded-md bg-teal-500/10 flex items-center justify-center text-teal-400 shrink-0">
@@ -235,30 +294,36 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <span className="font-medium text-slate-300">Upload Throughput</span>
             </div>
             <span className="text-[11px] text-slate-400 font-mono">
-              Session: {liveStats ? formatBytes(liveStats.sessionUploadBytes) : '--'}
+              Session: <AnimatedValue value={liveStats ? formatBytes(liveStats.sessionUploadBytes) : '--'} />
             </span>
           </div>
 
-          <div className="flex items-baseline gap-2 mt-1.5">
-            <span className="text-3xl font-bold tracking-tight text-slate-100 font-mono tabular-nums">
-              {liveStats ? upSpeed.value : '--'}
-            </span>
-            <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-teal-500/10 text-teal-400 font-mono">
-              {liveStats ? upSpeed.unit : ''}
-            </span>
+          <div className="flex items-baseline gap-2 mt-1.5 h-9 overflow-hidden">
+            <AnimatedValue
+              value={liveStats ? upSpeed.value : '--'}
+              unit={liveStats ? upSpeed.unit : ''}
+              className="text-3xl font-bold tracking-tight text-slate-100 font-mono"
+              unitClassName="text-xs font-semibold px-1.5 py-0.5 rounded bg-teal-500/10 text-teal-400 font-mono"
+            />
           </div>
 
           <div className="mt-2.5 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
             <span>Today's Total:</span>
             <span className="font-mono text-slate-200 font-medium">
-              {liveStats ? formatBytes(liveStats.dailyUploadBytes) : '--'}
+              <AnimatedValue value={liveStats ? formatBytes(liveStats.dailyUploadBytes) : '--'} />
             </span>
           </div>
-        </div>
+        </motion.div>
       </div>
 
       {/* 3. Live Traffic Graph Card */}
-      <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.25, delay: 0.15, ease: 'easeOut' }}
+        className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3"
+      >
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-1.5">
             <Activity className="w-4 h-4 text-sky-400 shrink-0" />
@@ -351,10 +416,16 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             </AreaChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      </motion.div>
 
       {/* 4. ICMP Ping Latency Section */}
-      <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.25, delay: 0.2, ease: 'easeOut' }}
+        className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3"
+      >
         <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800/60">
           <div className="flex items-center gap-1.5">
             <Radio className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -382,57 +453,87 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           </div>
         </div>
 
-        {/* Latency Stats 2x2 Grid + Packet Loss */}
-        <div className="grid grid-cols-2 gap-2 pt-2.5">
-          <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-                Current Ping Latency
-              </span>
-              <span className={`text-[9px] px-1 py-0.2 rounded font-semibold uppercase ${
-                !lastProbeSucceeded
-                  ? 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
-                  : latencyMs < 40
-                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                  : latencyMs < 100
-                  ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                  : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
-              }`}>
-                {!pingResult ? 'Unavailable' : pingResult.status === 'timeout' ? 'Timeout' : pingResult.status === 'error' ? 'Error' : latencyMs < 40 ? 'Optimal' : latencyMs < 100 ? 'Good' : 'High'}
-              </span>
+        {/* Latency Stats 2x2 Grid + Packet Loss with Entry/Exit Transitions */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activePingTarget || '1.1.1.1'}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.2 }}
+            className="grid grid-cols-2 gap-2 pt-2.5"
+          >
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
+                  Current Ping Latency
+                </span>
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span
+                    key={pingResult?.status ?? 'none'}
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.18 }}
+                    className={`text-[9px] px-1 py-0.2 rounded font-semibold uppercase ${
+                      !lastProbeSucceeded
+                        ? 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
+                        : latencyMs < 40
+                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                        : latencyMs < 100
+                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                        : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                    }`}
+                  >
+                    {!pingResult ? 'Unavailable' : pingResult.status === 'timeout' ? 'Timeout' : pingResult.status === 'error' ? 'Error' : latencyMs < 40 ? 'Optimal' : latencyMs < 100 ? 'Good' : 'High'}
+                  </motion.span>
+                </AnimatePresence>
+              </div>
+              <div className="mt-0.5 h-7 overflow-hidden">
+                <AnimatedValue
+                  value={pingResult ? (pingResult.status === 'success' ? formatLatency(latencyMs) : pingResult.status === 'timeout' ? 'Timed out' : 'Failed') : '--'}
+                  className="text-xl font-bold font-mono text-emerald-400"
+                />
+              </div>
             </div>
-            <span className="text-xl font-bold font-mono text-emerald-400 tabular-nums block mt-0.5">
-              {pingResult ? (pingResult.status === 'success' ? formatLatency(latencyMs) : pingResult.status === 'timeout' ? 'Timed out' : 'Failed') : '--'}
-            </span>
-          </div>
 
-          <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-              Average Ping Latency
-            </span>
-            <span className="text-base font-semibold font-mono text-slate-200 tabular-nums block mt-1">
-              {hasSuccessfulPing ? formatLatency(avgLatencyMs) : '--'}
-            </span>
-          </div>
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
+                Average Ping Latency
+              </span>
+              <div className="mt-1 h-6 overflow-hidden">
+                <AnimatedValue
+                  value={hasSuccessfulPing ? formatLatency(avgLatencyMs) : '--'}
+                  className="text-base font-semibold font-mono text-slate-200"
+                />
+              </div>
+            </div>
 
-          <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-              Min / Max
-            </span>
-            <span className="text-xs font-semibold font-mono text-slate-200 tabular-nums block mt-1">
-              {hasSuccessfulPing ? `${minLatencyMs.toFixed(0)} / ${maxLatencyMs.toFixed(0)} ms` : '--'}
-            </span>
-          </div>
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
+                Min / Max
+              </span>
+              <div className="mt-1 h-5 overflow-hidden">
+                <AnimatedValue
+                  value={hasSuccessfulPing ? `${minLatencyMs.toFixed(0)} / ${maxLatencyMs.toFixed(0)} ms` : '--'}
+                  className="text-xs font-semibold font-mono text-slate-200"
+                />
+              </div>
+            </div>
 
-          <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-              Jitter / Failed Probes
-            </span>
-            <span className="text-xs font-semibold font-mono text-sky-400 tabular-nums block mt-1">
-              {hasSuccessfulPing ? `${formatJitter(jitterMs)} (${formatPercent(packetLossPercent)})` : '--'}
-            </span>
-          </div>
-        </div>
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
+                Jitter / Failed Probes
+              </span>
+              <div className="mt-1 h-5 overflow-hidden">
+                <AnimatedValue
+                  value={hasSuccessfulPing ? `${formatJitter(jitterMs)} (${formatPercent(packetLossPercent)})` : '--'}
+                  className="text-xs font-semibold font-mono text-sky-400"
+                />
+              </div>
+            </div>
+          </motion.div>
+        </AnimatePresence>
 
         {/* Latency History Sparkline Chart */}
         {hasSuccessfulPing && latencyHistory.length > 1 && (
@@ -499,7 +600,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             Probe
           </button>
         </form>
-      </div>
+      </motion.div>
     </div>
   );
 };
