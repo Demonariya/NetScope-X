@@ -167,11 +167,11 @@ export default function App() {
   useEffect(() => {
     async function init() {
       if (!isTauri) {
-        setAdapterDiscoveryStatus('desktop-required');
-        setSettings(DEFAULT_SETTINGS);
-        setIsMonitoring(false);
-        addToast('Windows Desktop Runtime Required', 'Live telemetry is available only in the packaged Tauri app. Demo data is disabled.', 'info');
-        return;
+        addToast(
+          'Web Simulation Mode Active',
+          'Streaming live simulated telemetry with full interactive controls.',
+          'info'
+        );
       }
 
       const safeLoad = async <T,>(operation: Promise<T>, fallback: T, label: string): Promise<T> => {
@@ -251,7 +251,7 @@ export default function App() {
 
   // Sample interface counters frequently, but never let slow OS queries overlap.
   useEffect(() => {
-    if (!isTauri || !isMonitoring) return;
+    if (!isMonitoring) return;
 
     let inFlight = false;
     let cancelled = false;
@@ -364,7 +364,7 @@ export default function App() {
 
   // Process enumeration also gathers each PID's socket list; refresh both from that one query every 4 seconds.
   useEffect(() => {
-    if (!isTauri || !isMonitoring) return;
+    if (!isMonitoring) return;
 
     let inFlight = false;
     let cancelled = false;
@@ -398,11 +398,11 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [isTauri, isMonitoring]);
+  }, [isMonitoring]);
 
   // The backend refreshes SQLite history while either traffic-related tab is visible.
   useEffect(() => {
-    if (!isTauri || (activeTab !== 'traffic' && activeTab !== 'history')) return;
+    if (activeTab !== 'traffic' && activeTab !== 'history') return;
     let inFlight = false;
     let cancelled = false;
     let historyQueryFailureNotified = false;
@@ -439,7 +439,7 @@ export default function App() {
 
   // ICMP probing runs on a blocking worker, so sample it less often than interface counters.
   useEffect(() => {
-    if (!isTauri || !isMonitoring) return;
+    if (!isMonitoring) return;
 
     let inFlight = false;
     let cancelled = false;
@@ -474,7 +474,7 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [isTauri, isMonitoring, activePingTarget, settings?.diagnostics.pingIntervalMs]);
+  }, [isMonitoring, activePingTarget, settings?.diagnostics.pingIntervalMs]);
 
   // Adapter selection drives live counters and is persisted with Settings.
   const handleSelectAdapter = (id: string) => {
@@ -690,17 +690,13 @@ export default function App() {
     }
   };
 
-  // Native desktop controls — these change the actual Tauri window instead of only showing a toast.
+  // Native desktop and simulation controls.
   const handleToggleMonitoring = async () => {
-    if (!isTauri) {
-      addToast('Windows Desktop Runtime Required', 'Monitoring controls work only in the packaged Tauri app.', 'info');
-      return;
-    }
     const next = !isMonitoring;
     try {
       await api.setMonitoringEnabled(next);
       setIsMonitoring(next);
-      addToast(next ? 'Monitoring Resumed' : 'Monitoring Paused', next ? 'Live system sampling resumed.' : 'Live system sampling paused.', 'info');
+      addToast(next ? 'Monitoring Resumed' : 'Monitoring Paused', next ? 'Live telemetry sampling resumed.' : 'Live telemetry sampling paused.', 'info');
     } catch (error) {
       addToast('Monitoring Control Failed', error instanceof Error ? error.message : String(error), 'error');
     }
@@ -709,6 +705,9 @@ export default function App() {
   const handleHideToTray = async () => {
     try {
       await api.hideWindow();
+      if (!isTauri) {
+        addToast('Tray Simulation', 'In desktop mode, NetScope X docks to the Windows system notification area.', 'info');
+      }
     } catch (error) {
       addToast('Hide to Tray Failed', error instanceof Error ? error.message : String(error), 'error');
     }
@@ -717,6 +716,9 @@ export default function App() {
   const handleMinimize = async () => {
     try {
       await api.minimizeWindow();
+      if (!isTauri) {
+        addToast('Minimize Simulation', 'Window minimize action simulated in web preview.', 'info');
+      }
     } catch (error) {
       addToast('Minimize Failed', error instanceof Error ? error.message : String(error), 'error');
     }
@@ -726,8 +728,14 @@ export default function App() {
     try {
       if (settings?.startup?.minimizeToTrayOnClose !== false) {
         await api.hideWindow();
+        if (!isTauri) {
+          addToast('Close Simulation', 'Application minimizes to tray on close (configurable in Settings).', 'info');
+        }
       } else {
         await api.exitApp();
+        if (!isTauri) {
+          addToast('Exit Simulation', 'Application process terminates in desktop mode.', 'info');
+        }
       }
     } catch (error) {
       addToast('Close Failed', error instanceof Error ? error.message : String(error), 'error');

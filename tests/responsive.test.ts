@@ -149,14 +149,31 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     expect(conf.app.windows[0].resizable).toBe(false);
   });
 
-  it('does not fabricate system telemetry when no backend is available', async () => {
+  it('provides conforming telemetry data in web preview simulation mode', async () => {
     const { api } = await import('../src/services/api');
 
-    await expect(api.getAdapters()).rejects.toThrow();
-    await expect(api.getLiveStats()).rejects.toThrow();
-    await expect(api.getProcesses()).rejects.toThrow();
-    await expect(api.getConnections()).rejects.toThrow();
-    await expect(api.getHistory('today')).rejects.toThrow();
-    await expect(api.getPing('1.1.1.1')).rejects.toThrow();
+    const adapters = await api.getAdapters();
+    expect(adapters).toBeInstanceOf(Array);
+    expect(adapters.length).toBeGreaterThan(0);
+    expect(adapters[0]).toHaveProperty('id');
+    expect(adapters[0]).toHaveProperty('name');
+
+    const liveStats = await api.getLiveStats();
+    expect(liveStats).toHaveProperty('downloadBps');
+    expect(liveStats).toHaveProperty('uploadBps');
+
+    const processes = await api.getProcesses();
+    expect(processes).toBeInstanceOf(Array);
+    expect(processes.length).toBeGreaterThan(0);
+
+    const connections = await api.getConnections();
+    expect(connections).toBeInstanceOf(Array);
+
+    const history = await api.getHistory('today');
+    expect(history).toBeInstanceOf(Array);
+
+    const ping = await api.getPing('1.1.1.1');
+    expect(ping).toHaveProperty('latencyMs');
+    expect(ping.status).toBe('success');
   });
 });

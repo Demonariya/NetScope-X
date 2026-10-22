@@ -10,6 +10,8 @@ import {
   AppSettings,
 } from '../types/network';
 
+import { webSimulation, SIMULATED_ADAPTERS } from './webSimulation';
+
 export const isTauri =
   typeof window !== 'undefined' &&
   ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
@@ -25,9 +27,63 @@ declare global {
   }
 }
 
+async function handleWebSimulation<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  switch (cmd) {
+    case 'get_network_adapters':
+      return Promise.resolve(SIMULATED_ADAPTERS as unknown as T);
+    case 'get_live_network_stats':
+      return Promise.resolve(
+        webSimulation.getLiveStats((args?.adapterId as string) || 'auto') as unknown as T
+      );
+    case 'ping_target':
+      return Promise.resolve(
+        webSimulation.getPing((args?.target as string) || '1.1.1.1') as unknown as T
+      );
+    case 'get_process_network_usage':
+      return Promise.resolve(webSimulation.getProcesses() as unknown as T);
+    case 'get_active_connections':
+      return Promise.resolve(webSimulation.getConnections() as unknown as T);
+    case 'toggle_process_block':
+      return Promise.resolve(true as unknown as T);
+    case 'reset_process_stats':
+      return Promise.resolve(true as unknown as T);
+    case 'get_traffic_history':
+      return Promise.resolve(
+        webSimulation.getHistory((args?.range as string) || 'today') as unknown as T
+      );
+    case 'export_traffic_history':
+      return Promise.resolve(
+        webSimulation.exportHistory(
+          (args?.format as 'csv' | 'json') || 'csv',
+          (args?.range as string) || 'today'
+        ) as unknown as T
+      );
+    case 'get_settings':
+      return Promise.resolve(webSimulation.getSettings() as unknown as T);
+    case 'save_settings':
+      if (args?.settings) webSimulation.saveSettings(args.settings as AppSettings);
+      return Promise.resolve(true as unknown as T);
+    case 'reset_network_session_stats':
+      webSimulation.resetSession();
+      return Promise.resolve(true as unknown as T);
+    case 'clear_history':
+      webSimulation.clearHistory();
+      return Promise.resolve(true as unknown as T);
+    case 'system_tray_action':
+      return Promise.resolve(true as unknown as T);
+    case 'set_monitoring_enabled':
+      webSimulation.setMonitoring(Boolean(args?.enabled));
+      return Promise.resolve(true as unknown as T);
+    case 'exit_app':
+      return Promise.resolve(undefined as unknown as T);
+    default:
+      return Promise.resolve({} as unknown as T);
+  }
+}
+
 async function nativeCommand<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri) {
-    throw new Error(`The "${cmd}" command requires the NetScope X Windows desktop application.`);
+    return handleWebSimulation<T>(cmd, args);
   }
   return invoke<T>(cmd, args);
 }
@@ -81,12 +137,19 @@ export const api = {
   },
 
   async resetProcessStats(pid?: number): Promise<{ success: boolean }> {
+    if (!isTauri) {
+      webSimulation.resetProcessStats(pid);
+      return { success: true };
+    }
     const success = await nativeCommand<boolean>('reset_process_stats', { pid });
     if (!success) throw new Error('The native backend did not confirm the reset.');
     return { success };
   },
 
   async toggleBlockProcess(exeName: string, block: boolean, pid?: number): Promise<{ success: boolean; isBlocked: boolean; exeName: string }> {
+    if (!isTauri) {
+      return webSimulation.toggleBlock(exeName, block);
+    }
     const success = await nativeCommand<boolean>('toggle_process_block', { exeName, block, pid });
     if (!success) throw new Error('Windows Firewall did not confirm the requested change.');
     return { success, isBlocked: block, exeName };
