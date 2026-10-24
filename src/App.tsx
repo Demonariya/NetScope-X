@@ -178,16 +178,15 @@ export default function App() {
         try {
           return await operation;
         } catch (error) {
-          console.error(`${label} load failed:`, error);
-          const detail = error instanceof Error ? error.message : String(error);
-          addToast(`${label} unavailable`, detail, 'error');
+          console.warn(`${label} initialization deferred:`, error);
           return fallback;
         }
       };
 
       const adapterRequest = api.getAdapters().then(found => {
-        setAdapterDiscoveryStatus(found.length > 0 ? 'available' : 'empty');
-        return found;
+        const physical = found.filter(a => a.type !== 'virtual' && a.type !== 'loopback');
+        setAdapterDiscoveryStatus(physical.length > 0 ? 'available' : 'empty');
+        return physical;
       }).catch(error => {
         setAdapterDiscoveryStatus('error');
         throw error;
@@ -292,8 +291,9 @@ export default function App() {
         try {
           const discovered = await api.getAdapters();
           if (cancelled) return;
-          setAdapters(discovered);
-          setAdapterDiscoveryStatus(discovered.length > 0 ? 'available' : 'empty');
+          const physical = discovered.filter(a => a.type !== 'virtual' && a.type !== 'loopback');
+          setAdapters(physical);
+          setAdapterDiscoveryStatus(physical.length > 0 ? 'available' : 'empty');
 
           if (discovered.some(adapter => adapter.id === selectedAdapterId)) {
             console.warn('Selected adapter is still present, but its counters could not be read:', error);

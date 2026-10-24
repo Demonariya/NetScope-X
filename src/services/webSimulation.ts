@@ -54,40 +54,6 @@ const SIMULATED_ADAPTERS: NetworkAdapter[] = [
     speedMbps: 1000,
     isDefault: false,
   },
-  {
-    id: '28',
-    name: 'WireGuard Tunnel',
-    description: 'WireGuard Tunnel Adapter (wg0-secure)',
-    type: 'virtual',
-    status: 'connected',
-    localIPv4: '10.66.66.2',
-    localIPv6: 'fd42:42:42::2',
-    macAddress: '00-00-00-00-00-00',
-    gateway: '10.66.66.1',
-    dnsServers: ['10.66.66.1'],
-    signalPercent: undefined,
-    signalDbm: undefined,
-    ssid: undefined,
-    speedMbps: 1000,
-    isDefault: false,
-  },
-  {
-    id: '31',
-    name: 'vEthernet (Default Switch)',
-    description: 'Hyper-V Virtual Ethernet Adapter',
-    type: 'virtual',
-    status: 'connected',
-    localIPv4: '172.28.16.1',
-    localIPv6: '',
-    macAddress: '00-15-5D-78-90-AB',
-    gateway: '',
-    dnsServers: [],
-    signalPercent: undefined,
-    signalDbm: undefined,
-    ssid: undefined,
-    speedMbps: 10000,
-    isDefault: false,
-  },
 ];
 
 // Persistent state management
@@ -242,6 +208,34 @@ class SimulationState {
         ],
       },
       {
+        pid: 8424,
+        name: 'chrome.exe',
+        friendlyName: 'Google Chrome',
+        exeName: 'chrome.exe',
+        fullPath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        baseDown: 420_000,
+        baseUp: 45_000,
+        sessionDown: 14_200_000,
+        sessionUp: 3_100_000,
+        remoteIps: [
+          { ip: '142.250.190.78', port: 443, proto: 'TCP' as const },
+        ],
+      },
+      {
+        pid: 8432,
+        name: 'chrome.exe',
+        friendlyName: 'Google Chrome',
+        exeName: 'chrome.exe',
+        fullPath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        baseDown: 120_000,
+        baseUp: 18_000,
+        sessionDown: 6_800_000,
+        sessionUp: 1_200_000,
+        remoteIps: [
+          { ip: '142.250.190.100', port: 443, proto: 'TCP' as const },
+        ],
+      },
+      {
         pid: 11480,
         name: 'discord.exe',
         friendlyName: 'Discord Canary',
@@ -254,6 +248,20 @@ class SimulationState {
         remoteIps: [
           { ip: '162.159.130.233', port: 443, proto: 'TCP' as const },
           { ip: '162.159.135.232', port: 50001, proto: 'UDP' as const },
+        ],
+      },
+      {
+        pid: 11488,
+        name: 'discord.exe',
+        friendlyName: 'Discord Canary',
+        exeName: 'discord.exe',
+        fullPath: 'C:\\Users\\User\\AppData\\Local\\DiscordCanary\\app-1.0.9015\\DiscordCanary.exe',
+        baseDown: 110_000,
+        baseUp: 40_000,
+        sessionDown: 5_300_000,
+        sessionUp: 2_100_000,
+        remoteIps: [
+          { ip: '162.159.130.240', port: 443, proto: 'TCP' as const },
         ],
       },
       {
@@ -463,7 +471,7 @@ class SimulationState {
 
   clearHistory(): boolean {
     try {
-      localStorage.removeItem(STORAGE_KEYS.HISTORY);
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([]));
       return true;
     } catch {
       return false;

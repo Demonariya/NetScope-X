@@ -132,8 +132,13 @@ try {
 }
 
 $rows = @(
-  Get-NetAdapter -IncludeHidden -ErrorAction Stop |
-    Where-Object { $_.Status -ne 'Not Present' } |
+  Get-NetAdapter -ErrorAction Stop |
+    Where-Object {
+      $_.Status -ne 'Not Present' -and
+      $_.HardwareInterface -eq $true -and
+      $_.InterfaceDescription -notmatch 'Virtual|VPN|TAP|TUN|Tunnel|WireGuard|Wintun|Hyper-V|VMware|VirtualBox|Pseudo|WAN Miniport|Tailscale|ZeroTier|Cisco|OpenVPN|Proton|NordVPN|se7en|Direct Virtual' -and
+      $_.Name -notmatch 'Virtual|VPN|TAP|TUN|Tunnel|WireGuard|Wintun|Hyper-V|VMware|VirtualBox|Loopback|se7en|Loopback'
+    } |
     ForEach-Object {
       $adapter = $_
       $key = [string]$adapter.ifIndex
@@ -149,7 +154,9 @@ $rows = @(
       elseif ($description -match 'RNDIS|USB Tether|Remote NDIS' -or $adapterName -match 'RNDIS|USB Tether|Remote NDIS') { $kind = 'usb_tether' }
       elseif ($description -match 'WWAN|Mobile Broadband|Cellular|LTE|5G Modem') { $kind = 'cellular' }
       elseif ($adapterName -match 'loopback' -or $description -match 'loopback') { $kind = 'loopback' }
-      elseif (-not $adapter.HardwareInterface -or $adapterName -match 'VPN|TAP|Tunnel|Virtual|WireGuard|Wintun|Hyper-V|VMware|VirtualBox' -or $description -match 'VPN|TAP|Tunnel|Virtual|WireGuard|Wintun|Hyper-V|VMware|VirtualBox') { $kind = 'virtual' }
+      elseif (-not $adapter.HardwareInterface -or $adapterName -match 'VPN|TAP|TUN|Tunnel|Virtual|WireGuard|Wintun|Hyper-V|VMware|VirtualBox|se7en' -or $description -match 'VPN|TAP|TUN|Tunnel|Virtual|WireGuard|Wintun|Hyper-V|VMware|VirtualBox|se7en') { $kind = 'virtual' }
+
+      if ($kind -eq 'virtual' -or $kind -eq 'loopback') { return }
 
       $status = if ($adapter.Status -eq 'Up') { 'connected' } else { 'disconnected' }
       $speed = 0
@@ -185,7 +192,9 @@ $rows = @(
 ConvertTo-Json -InputObject ([pscustomobject]@{ adapters = @($rows) }) -Depth 5 -Compress
 "#;
             let json = crate::windows_utils::run_powershell(script)?;
-            parse_adapter_payload(&json)
+            let mut adapters = parse_adapter_payload(&json)?;
+            adapters.retain(|a| !matches!(a.r#type, ConnectionType::Virtual | ConnectionType::Loopback));
+            Ok(adapters)
         }
         #[cfg(not(windows))]
         {

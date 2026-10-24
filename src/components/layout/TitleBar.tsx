@@ -52,6 +52,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
         {/* Live Status indicator button */}
         <button
+          data-tauri-drag-region="false"
           onClick={onToggleMonitoring}
           title={isMonitoring ? 'Click to Pause Monitoring' : 'Click to Resume Monitoring'}
           className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium transition-colors shrink-0 cursor-pointer ${
@@ -66,9 +67,10 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       </div>
 
       {/* Right: Theme Switcher, System Tray & Windows Controls */}
-      <div className="flex items-center gap-1 shrink-0">
+      <div data-tauri-drag-region="false" className="flex items-center gap-1 shrink-0">
         {onToggleTheme && (
           <button
+            data-tauri-drag-region="false"
             onClick={onToggleTheme}
             title={`Active Theme: ${currentTheme.toUpperCase()} (Click to switch)`}
             className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
@@ -84,6 +86,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         )}
 
         <button
+          data-tauri-drag-region="false"
           onClick={onHideToTray}
           title="Hide NetScope X to the Windows system tray"
           className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
@@ -95,16 +98,18 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
         {/* Windows Standard Window Buttons */}
         <button
+          data-tauri-drag-region="false"
           onClick={onMinimize}
           title="Minimize"
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-800 text-slate-400 hover:text-slate-100 transition-colors"
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-800 text-slate-400 hover:text-slate-100 transition-colors cursor-pointer"
         >
           <Minus className="w-3.5 h-3.5" />
         </button>
         <button
+          data-tauri-drag-region="false"
           onClick={onClose}
           title="Close (Minimizes to Tray by default)"
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-500/80 hover:text-white text-slate-400 transition-colors"
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-500/80 hover:text-white text-slate-400 transition-colors cursor-pointer"
         >
           <X className="w-3.5 h-3.5" />
         </button>

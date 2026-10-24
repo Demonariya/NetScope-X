@@ -83,9 +83,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const [chartTimeframe, setChartTimeframe] = useState<'30s' | '60s' | '5m'>('30s');
   const [customPingHost, setCustomPingHost] = useState('');
 
+  const visibleAdapters = React.useMemo(() => {
+    return adapters.filter(a => a.type !== 'virtual' && a.type !== 'loopback');
+  }, [adapters]);
+
   const activeAdapter = selectedAdapterId === 'auto'
-    ? adapters.find(a => a.isDefault) || adapters.find(a => a.status === 'connected') || adapters[0]
-    : adapters.find(a => a.id === selectedAdapterId);
+    ? visibleAdapters.find(a => a.isDefault) || visibleAdapters.find(a => a.status === 'connected') || visibleAdapters[0]
+    : visibleAdapters.find(a => a.id === selectedAdapterId) || adapters.find(a => a.id === selectedAdapterId);
 
   const adapterDescription = activeAdapter?.description || ({
     loading: 'Detecting Windows network adapters…',
@@ -176,7 +180,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             className="w-full text-xs bg-slate-950 border border-slate-700/80 rounded-md px-2.5 py-1.5 text-slate-300 focus:outline-none focus:border-sky-500"
           >
             <option value="auto">Auto Select Adapter (Gateway)</option>
-            {adapters.map(a => (
+            {visibleAdapters.map(a => (
               <option key={a.id} value={a.id}>
                 {a.name} ({a.type.toUpperCase()})
               </option>

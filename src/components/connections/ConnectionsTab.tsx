@@ -23,24 +23,40 @@ export const ConnectionsTab: React.FC<ConnectionsTabProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const handleCopyEndpoint = (conn: SocketConnection) => {
+  const handleCopyEndpoint = async (conn: SocketConnection) => {
     const hasRemoteEndpoint = Boolean(conn.remoteAddress) && conn.remotePort > 0;
     const text = hasRemoteEndpoint
       ? `${conn.remoteAddress}:${conn.remotePort}`
       : `${conn.localAddress}:${conn.localPort}`;
 
-    if (!navigator.clipboard?.writeText) {
-      onShowToast('Copy Unavailable', 'Clipboard access is unavailable in this window.');
-      return;
+    let success = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        success = true;
+      }
+    } catch {}
+
+    if (!success) {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        success = document.execCommand('copy');
+        document.body.removeChild(textArea);
+      } catch {}
     }
 
-    void navigator.clipboard.writeText(text).then(() => {
+    if (success) {
       setCopiedId(conn.id);
       onShowToast(hasRemoteEndpoint ? 'Remote Endpoint Copied' : 'Local Endpoint Copied', text);
       window.setTimeout(() => setCopiedId(null), 2000);
-    }).catch(() => {
-      onShowToast('Copy Failed', 'Windows did not grant clipboard access to this window.');
-    });
+    } else {
+      onShowToast('Copy Failed', 'Clipboard access is restricted in this window.');
+    }
   };
 
   const filteredConnections = useMemo(() => {

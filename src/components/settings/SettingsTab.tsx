@@ -267,11 +267,13 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               className="text-xs bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-300 w-full"
             >
               <option value="auto">Auto (Default Route)</option>
-              {adapters.map(a => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
+              {adapters
+                .filter(a => a.type !== 'virtual' && a.type !== 'loopback')
+                .map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.type.toUpperCase()})
+                  </option>
+                ))}
             </select>
           </div>
 

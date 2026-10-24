@@ -44,8 +44,12 @@ async function handleWebSimulation<T>(cmd: string, args?: Record<string, unknown
     case 'get_active_connections':
       return Promise.resolve(webSimulation.getConnections() as unknown as T);
     case 'toggle_process_block':
+      if (args?.exeName) {
+        webSimulation.toggleBlock(args.exeName as string, Boolean(args.block));
+      }
       return Promise.resolve(true as unknown as T);
     case 'reset_process_stats':
+      webSimulation.resetProcessStats(args?.pid as number | undefined);
       return Promise.resolve(true as unknown as T);
     case 'get_traffic_history':
       return Promise.resolve(
