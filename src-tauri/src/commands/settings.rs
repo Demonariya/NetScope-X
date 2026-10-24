@@ -14,7 +14,8 @@ pub fn apply_monitoring_state<R: Runtime>(
 
     if enabled && per_app_enabled {
         let session_name = format!("NetScopeX-{}", std::process::id());
-        if let Err(error) = crate::monitoring::etw::EtwSessionManager::start_session(&session_name)
+        if let Err(error) =
+            crate::monitoring::etw::EtwSessionManager::start_session(&session_name)
         {
             log::debug!("NetScope X per-process ETW telemetry is unavailable: {error}");
         }

@@ -193,7 +193,9 @@ ConvertTo-Json -InputObject ([pscustomobject]@{ adapters = @($rows) }) -Depth 5 
 "#;
             let json = crate::windows_utils::run_powershell(script)?;
             let mut adapters = parse_adapter_payload(&json)?;
-            adapters.retain(|a| !matches!(a.r#type, ConnectionType::Virtual | ConnectionType::Loopback));
+            adapters.retain(|a| {
+                !matches!(a.r#type, ConnectionType::Virtual | ConnectionType::Loopback)
+            });
             Ok(adapters)
         }
         #[cfg(not(windows))]
