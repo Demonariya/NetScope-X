@@ -33,7 +33,7 @@ pub async fn get_traffic_history(
 pub async fn clear_history(app: AppHandle) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let db_path = history_database_path(&app)?;
-        Database::with_shared(&db_path, |conn| HistoryStorage::clear_history(conn))
+        Database::with_shared(&db_path, HistoryStorage::clear_history)
             .map_err(|error| format!("Cannot clear traffic history: {error}"))?;
         Ok(true)
     })

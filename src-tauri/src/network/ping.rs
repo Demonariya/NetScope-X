@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
-use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -186,7 +185,7 @@ fn probe_icmp_windows(address: Ipv4Addr, timeout_ms: u64) -> (PingStatus, f64) {
 
 #[cfg(not(windows))]
 fn probe_cross_platform(address: Ipv4Addr, timeout_ms: u64) -> (PingStatus, f64) {
-    let timeout = Duration::from_millis(timeout_ms.clamp(100, 15000));
+    let timeout = std::time::Duration::from_millis(timeout_ms.clamp(100, 15000));
     let socket_addr = std::net::SocketAddr::new(IpAddr::V4(address), 80);
     let start = std::time::Instant::now();
 
