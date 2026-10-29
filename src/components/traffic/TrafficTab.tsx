@@ -17,6 +17,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { motion } from 'motion/react';
 import { ProcessNetworkUsage, TrafficHistoryRecord } from '../../types/network';
 import { formatBytes } from '../../utils/formatters';
 
@@ -159,9 +160,11 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
               </span>
             </div>
             <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
-              <div
-                className="h-full bg-sky-400 rounded-full transition-all duration-500"
-                style={{ width: `${tcpPercent}%` }}
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${tcpPercent}%` }}
+                transition={{ duration: 0.6, ease: 'easeOut' }}
+                className="h-full bg-sky-400 rounded-full"
               />
             </div>
           </div>
@@ -174,9 +177,11 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
               </span>
             </div>
             <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
-              <div
-                className="h-full bg-teal-400 rounded-full transition-all duration-500"
-                style={{ width: `${udpPercent}%` }}
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${udpPercent}%` }}
+                transition={{ duration: 0.6, ease: 'easeOut' }}
+                className="h-full bg-teal-400 rounded-full"
               />
             </div>
           </div>
@@ -370,9 +375,11 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
                     </div>
                   </div>
                   <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-sky-400 to-blue-500 rounded-full transition-all duration-300"
-                      style={{ width: `${Math.max(2, share)}%` }}
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.max(2, share)}%` }}
+                      transition={{ duration: 0.6, delay: index * 0.05, ease: 'easeOut' }}
+                      className="h-full bg-gradient-to-r from-sky-400 to-blue-500 rounded-full"
                     />
                   </div>
                 </div>

@@ -67,9 +67,10 @@ fn parse_or_resolve_ipv4(target: &str) -> Result<Ipv4Addr, PingStatus> {
     }
 
     // Check for invalid host characters
-    if host.chars().any(|c| {
-        c.is_whitespace() || c == '/' || c == '\\' || c == ':' || c == '?' || c == '*'
-    }) {
+    if host
+        .chars()
+        .any(|c| c.is_whitespace() || c == '/' || c == '\\' || c == ':' || c == '?' || c == '*')
+    {
         return Err(PingStatus::InvalidTarget);
     }
 
@@ -217,7 +218,11 @@ impl PingService {
     /// Sends an ICMP Echo Request (on Windows) or network probe with explicit timeout.
     /// Returns typed status: success, timeout, dns_error, unreachable, invalid_target, or error.
     pub fn probe(target: &str, timeout_ms: u64) -> PingProbeResult {
-        let effective_timeout = if timeout_ms == 0 { 2000 } else { timeout_ms.clamp(100, 15000) };
+        let effective_timeout = if timeout_ms == 0 {
+            2000
+        } else {
+            timeout_ms.clamp(100, 15000)
+        };
 
         let (status, latency) = match parse_or_resolve_ipv4(target) {
             Ok(address) => {
@@ -250,7 +255,11 @@ impl PingService {
             packet_loss_percent: if is_success { 0.0 } else { 100.0 },
             status: status.as_str().to_string(),
             last_checked: now,
-            history: if is_success { vec![latency] } else { Vec::new() },
+            history: if is_success {
+                vec![latency]
+            } else {
+                Vec::new()
+            },
         }
     }
 }

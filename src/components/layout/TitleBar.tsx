@@ -8,6 +8,7 @@ import {
   Sun,
   Laptop,
 } from 'lucide-react';
+import { motion } from 'motion/react';
 
 interface TitleBarProps {
   isMonitoring: boolean;
@@ -50,20 +51,26 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           </span>
         </span>
 
-        {/* Live Status indicator button */}
-        <button
+        {/* Live Status indicator button with animated radar pulse */}
+        <motion.button
           data-tauri-drag-region="false"
           onClick={onToggleMonitoring}
+          whileTap={{ scale: 0.93 }}
           title={isMonitoring ? 'Click to Pause Monitoring' : 'Click to Resume Monitoring'}
           className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium transition-colors shrink-0 cursor-pointer ${
             isMonitoring
-              ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
-              : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+              ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30'
+              : 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/30'
           }`}
         >
-          <span className={`w-1.5 h-1.5 rounded-full ${isMonitoring ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+          <span className="relative flex h-2 w-2">
+            {isMonitoring && (
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            )}
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${isMonitoring ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+          </span>
           <span>{isMonitoring ? 'LIVE' : 'PAUSED'}</span>
-        </button>
+        </motion.button>
       </div>
 
       {/* Right: Theme Switcher, System Tray & Windows Controls */}

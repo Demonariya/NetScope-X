@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { listen } from '@tauri-apps/api/event';
 import { TitleBar } from './components/layout/TitleBar';
 import { Navigation, TabType } from './components/layout/Navigation';
@@ -806,77 +807,88 @@ export default function App() {
           accentColor={accentColor}
         />
 
-        {/* Viewport Content Area with Vertical Scrolling */}
+        {/* Viewport Content Area with Vertical Scrolling and Fluid Tab Transitions */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden relative min-h-0 w-full">
-          {activeTab === 'overview' && (
-            <OverviewTab
-              adapters={adapters}
-              adapterDiscoveryStatus={adapterDiscoveryStatus}
-              selectedAdapterId={selectedAdapterId}
-              onSelectAdapter={handleSelectAdapter}
-              liveStats={liveStats}
-              activePingTarget={activePingTarget}
-              pingResult={pingResult}
-              onSelectPingTarget={handleSelectPingTarget}
-              speedHistory={speedHistory}
-              accentColor={accentColor}
-              currentTheme={theme}
-            />
-          )}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full min-h-full"
+            >
+              {activeTab === 'overview' && (
+                <OverviewTab
+                  adapters={adapters}
+                  adapterDiscoveryStatus={adapterDiscoveryStatus}
+                  selectedAdapterId={selectedAdapterId}
+                  onSelectAdapter={handleSelectAdapter}
+                  liveStats={liveStats}
+                  activePingTarget={activePingTarget}
+                  pingResult={pingResult}
+                  onSelectPingTarget={handleSelectPingTarget}
+                  speedHistory={speedHistory}
+                  accentColor={accentColor}
+                  currentTheme={theme}
+                />
+              )}
 
-          {activeTab === 'applications' && (
-            <ApplicationsTab
-              processes={processes}
-              onResetStats={handleResetProcessStats}
-              onToggleBlock={handleToggleBlock}
-              isMonitoring={isMonitoring}
-            />
-          )}
+              {activeTab === 'applications' && (
+                <ApplicationsTab
+                  processes={processes}
+                  onResetStats={handleResetProcessStats}
+                  onToggleBlock={handleToggleBlock}
+                  isMonitoring={isMonitoring}
+                />
+              )}
 
-          {activeTab === 'traffic' && (
-            <TrafficTab
-              history={history}
-              processes={processes}
-              accentColor={accentColor}
-              currentTheme={theme}
-            />
-          )}
+              {activeTab === 'traffic' && (
+                <TrafficTab
+                  history={history}
+                  processes={processes}
+                  accentColor={accentColor}
+                  currentTheme={theme}
+                />
+              )}
 
-          {activeTab === 'connections' && (
-            <ConnectionsTab
-              connections={connections}
-              onShowToast={(t, m) => addToast(t, m, 'info')}
-            />
-          )}
+              {activeTab === 'connections' && (
+                <ConnectionsTab
+                  connections={connections}
+                  onShowToast={(t, m) => addToast(t, m, 'info')}
+                />
+              )}
 
-          {activeTab === 'history' && (
-            <HistoryTab
-              history={history}
-              historyRange={historyRange}
-              onRangeChange={setHistoryRange}
-              onClearHistory={handleClearHistory}
-              onResetSession={handleResetSession}
-              isMonitoring={isMonitoring}
-              onShowToast={(t, m, type) => addToast(t, m, type ?? 'info')}
-              accentColor={accentColor}
-              currentTheme={theme}
-            />
-          )}
+              {activeTab === 'history' && (
+                <HistoryTab
+                  history={history}
+                  historyRange={historyRange}
+                  onRangeChange={setHistoryRange}
+                  onClearHistory={handleClearHistory}
+                  onResetSession={handleResetSession}
+                  isMonitoring={isMonitoring}
+                  onShowToast={(t, m, type) => addToast(t, m, type ?? 'info')}
+                  accentColor={accentColor}
+                  currentTheme={theme}
+                />
+              )}
 
-          {activeTab === 'settings' && settings && (
-            <SettingsTab
-              settings={settings}
-              adapters={adapters}
-              currentTheme={theme}
-              onThemeChange={handleThemeChange}
-              accentColor={accentColor}
-              onAccentColorChange={handleAccentColorChange}
-              onSaveSettings={handleSaveSettings}
-              onResetSession={handleResetSession}
-              onClearHistory={handleClearHistory}
-              onShowToast={(t, m, type = 'info') => addToast(t, m, type)}
-            />
-          )}
+              {activeTab === 'settings' && settings && (
+                <SettingsTab
+                  settings={settings}
+                  adapters={adapters}
+                  currentTheme={theme}
+                  onThemeChange={handleThemeChange}
+                  accentColor={accentColor}
+                  onAccentColorChange={handleAccentColorChange}
+                  onSaveSettings={handleSaveSettings}
+                  onResetSession={handleResetSession}
+                  onClearHistory={handleClearHistory}
+                  onShowToast={(t, m, type = 'info') => addToast(t, m, type)}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
         </div>
 
         {/* Dedicated 9:16 Portrait Bottom Navigation Bar */}

@@ -335,19 +335,27 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           </div>
 
           {/* Timeframe selector */}
-          <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded border border-slate-800 text-[11px]">
+          <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded border border-slate-800 text-[11px] relative">
             {(['30s', '60s', '5m'] as const).map(tf => (
-              <button
+              <motion.button
                 key={tf}
                 onClick={() => setChartTimeframe(tf)}
-                className={`px-2 py-0.5 rounded transition-all ${
+                whileTap={{ scale: 0.94 }}
+                className={`relative px-2 py-0.5 rounded transition-colors cursor-pointer ${
                   chartTimeframe === tf
-                    ? 'bg-slate-800 text-sky-400 font-medium'
+                    ? 'text-sky-300 font-medium'
                     : 'text-slate-500 hover:text-slate-300'
                 }`}
               >
+                {chartTimeframe === tf && (
+                  <motion.div
+                    layoutId="chartTimeframePill"
+                    className="absolute inset-0 bg-slate-800 rounded -z-10 shadow-xs"
+                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                  />
+                )}
                 {tf}
-              </button>
+              </motion.button>
             ))}
           </div>
         </div>
@@ -436,22 +444,30 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             <span className="font-semibold text-xs text-slate-200">Quality & Latency</span>
           </div>
 
-          {/* Quick Target Switcher */}
-          <div className="flex items-center gap-1 text-[11px]">
+          {/* Quick Target Switcher with animated pill indicator */}
+          <div className="flex items-center gap-1 text-[11px] relative">
             {['1.1.1.1', '8.8.8.8', '9.9.9.9'].map(target => {
               const isSelected = activePingTarget === target || (!activePingTarget && pingResult?.target === target);
               return (
-                <button
+                <motion.button
                   key={target}
                   onClick={() => onSelectPingTarget(target)}
-                  className={`px-2 py-0.5 rounded border transition-colors shrink-0 ${
+                  whileTap={{ scale: 0.93 }}
+                  className={`relative px-2 py-0.5 rounded border transition-colors shrink-0 cursor-pointer ${
                     isSelected
-                      ? 'bg-sky-500/20 border-sky-500/40 text-sky-300 font-medium'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                      ? 'border-sky-500/50 text-sky-300 font-medium'
+                      : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200'
                   }`}
                 >
+                  {isSelected && (
+                    <motion.div
+                      layoutId="activePingPill"
+                      className="absolute inset-0 bg-sky-500/20 rounded -z-10"
+                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                    />
+                  )}
                   {target === '1.1.1.1' ? '1.1.1.1' : target === '8.8.8.8' ? '8.8.8.8' : 'Quad9'}
-                </button>
+                </motion.button>
               );
             })}
           </div>
