@@ -33,11 +33,24 @@ export function normalizePingResult(input: unknown, fallbackHost = '1.1.1.1'): P
   const maxLatencyMs = Math.max(minLatencyMs, finiteNumber(record, ['maxLatencyMs', 'max_latency_ms'], latencyMs));
   const avgLatencyMs = Math.max(0, finiteNumber(record, ['avgLatencyMs', 'avg_latency_ms'], latencyMs));
   const jitterMs = Math.max(0, finiteNumber(record, ['jitterMs', 'jitter_ms'], 0));
-  const packetLossPercent = Math.min(100, Math.max(0, finiteNumber(record, ['packetLossPercent', 'packet_loss_percent'], 0)));
-  const lastChecked = Math.max(0, finiteNumber(record, ['lastChecked', 'last_checked'], Date.now()));
   const rawStatus = nonEmptyString(record, ['status'], 'error').toLowerCase();
-  const status: PingResult['status'] =
-    rawStatus === 'success' || rawStatus === 'timeout' || rawStatus === 'error' ? rawStatus : 'error';
+  const validStatuses: PingResult['status'][] = [
+    'success',
+    'timeout',
+    'dns_error',
+    'unreachable',
+    'invalid_target',
+    'error',
+  ];
+  const status: PingResult['status'] = validStatuses.includes(rawStatus as PingResult['status'])
+    ? (rawStatus as PingResult['status'])
+    : 'error';
+  const defaultLoss = status === 'success' ? 0 : 100;
+  const packetLossPercent = Math.min(
+    100,
+    Math.max(0, finiteNumber(record, ['packetLossPercent', 'packet_loss_percent'], defaultLoss))
+  );
+  const lastChecked = Math.max(0, finiteNumber(record, ['lastChecked', 'last_checked'], Date.now()));
   const history = Array.isArray(record.history)
     ? record.history.filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0)
     : [];

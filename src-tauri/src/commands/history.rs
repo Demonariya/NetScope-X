@@ -19,10 +19,11 @@ pub async fn get_traffic_history(
     range: Option<String>,
 ) -> Result<Vec<TrafficHistoryEntry>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let database = Database::open(history_database_path(&app)?)
-            .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
-        HistoryStorage::get_history(database.connection(), range.as_deref().unwrap_or("today"))
-            .map_err(|error| format!("Cannot read traffic history: {error}"))
+        let db_path = history_database_path(&app)?;
+        Database::with_shared(&db_path, |conn| {
+            HistoryStorage::get_history(conn, range.as_deref().unwrap_or("today"))
+        })
+        .map_err(|error| format!("Cannot read traffic history: {error}"))
     })
     .await
     .map_err(|error| format!("Traffic history worker failed: {error}"))?
@@ -31,9 +32,8 @@ pub async fn get_traffic_history(
 #[command]
 pub async fn clear_history(app: AppHandle) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let database = Database::open(history_database_path(&app)?)
-            .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
-        HistoryStorage::clear_history(database.connection())
+        let db_path = history_database_path(&app)?;
+        Database::with_shared(&db_path, |conn| HistoryStorage::clear_history(conn))
             .map_err(|error| format!("Cannot clear traffic history: {error}"))?;
         Ok(true)
     })
@@ -48,11 +48,11 @@ pub async fn export_traffic_history(
     range: Option<String>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let database = Database::open(history_database_path(&app)?)
-            .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
-        let entries =
-            HistoryStorage::get_history(database.connection(), range.as_deref().unwrap_or("today"))
-                .map_err(|error| format!("Cannot read traffic history for export: {error}"))?;
+        let db_path = history_database_path(&app)?;
+        let entries = Database::with_shared(&db_path, |conn| {
+            HistoryStorage::get_history(conn, range.as_deref().unwrap_or("today"))
+        })
+        .map_err(|error| format!("Cannot read traffic history for export: {error}"))?;
         match format.as_str() {
             "csv" => Ok(DataExporter::to_csv(&entries)),
             "json" => DataExporter::to_json(&entries)

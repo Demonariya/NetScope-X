@@ -37,7 +37,10 @@ async function handleWebSimulation<T>(cmd: string, args?: Record<string, unknown
       );
     case 'ping_target':
       return Promise.resolve(
-        webSimulation.getPing((args?.target as string) || '1.1.1.1') as unknown as T
+        webSimulation.getPing(
+          (args?.target as string) || '1.1.1.1',
+          (args?.timeout_ms as number) || (args?.timeoutMs as number) || 2000
+        ) as unknown as T
       );
     case 'get_process_network_usage':
       return Promise.resolve(webSimulation.getProcesses() as unknown as T);
@@ -130,9 +133,12 @@ export const api = {
     return nativeCommand<NetworkStats>('get_live_network_stats', { adapterId });
   },
 
-  async getPing(target?: string): Promise<PingResult> {
+  async getPing(target?: string, timeoutMs = 2000): Promise<PingResult> {
     const host = target?.trim() || '1.1.1.1';
-    const result = await nativeCommand<unknown>('ping_target', { target: host });
+    const result = await nativeCommand<unknown>('ping_target', {
+      target: host,
+      timeout_ms: timeoutMs,
+    });
     return normalizePingResult(result, host);
   },
 

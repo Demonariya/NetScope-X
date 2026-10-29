@@ -34,6 +34,14 @@ export interface NetworkStats {
   activeAdapterId: string;
 }
 
+export type PingStatus =
+  | 'success'
+  | 'timeout'
+  | 'dns_error'
+  | 'unreachable'
+  | 'invalid_target'
+  | 'error';
+
 export interface PingResult {
   target: string;
   host: string;
@@ -43,7 +51,7 @@ export interface PingResult {
   avgLatencyMs: number;
   jitterMs: number;
   packetLossPercent: number;
-  status: 'success' | 'timeout' | 'error';
+  status: PingStatus;
   lastChecked: number;
   history: number[];
 }
@@ -118,6 +126,7 @@ export interface AppSettings {
   diagnostics: {
     activePingTarget: string;
     pingIntervalMs: number;
+    pingTimeoutMs?: number;
   };
   startup: {
     startWithWindows: boolean;

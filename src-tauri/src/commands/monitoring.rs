@@ -49,11 +49,7 @@ fn prune_history_if_needed(app: &AppHandle, connection: &Connection) -> Result<(
 }
 
 fn persist_hour_sample(app: &AppHandle, stats: &LiveNetworkStats) -> Result<(), String> {
-    let database = Database::open(history_database_path(app)?)
-        .map_err(|error| format!("Cannot open traffic history database: {error}"))?;
-    if let Err(error) = prune_history_if_needed(app, database.connection()) {
-        eprintln!("NetScope X could not prune expired history: {error}");
-    }
+    let db_path = history_database_path(app)?;
     let entry = TrafficHistoryEntry {
         id: format!("{}-{}", stats.hour_key, stats.active_adapter_id),
         timestamp: stats.timestamp,
@@ -63,8 +59,13 @@ fn persist_hour_sample(app: &AppHandle, stats: &LiveNetworkStats) -> Result<(), 
         upload_bytes: stats.hourly_upload_bytes,
         top_app: format!("Interface {}", stats.active_adapter_id),
     };
-    HistoryStorage::insert_entry(database.connection(), &entry)
-        .map_err(|error| format!("Cannot write traffic history sample: {error}"))
+    Database::with_shared(&db_path, |connection| {
+        if let Err(error) = prune_history_if_needed(app, connection) {
+            eprintln!("NetScope X could not prune expired history: {error}");
+        }
+        HistoryStorage::insert_entry(connection, &entry)
+    })
+    .map_err(|error| format!("Cannot write traffic history sample: {error}"))
 }
 
 #[command]

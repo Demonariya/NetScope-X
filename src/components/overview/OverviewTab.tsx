@@ -489,13 +489,43 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                         : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
                     }`}
                   >
-                    {!pingResult ? 'Unavailable' : pingResult.status === 'timeout' ? 'Timeout' : pingResult.status === 'error' ? 'Error' : latencyMs < 40 ? 'Optimal' : latencyMs < 100 ? 'Good' : 'High'}
+                    {!pingResult
+                      ? 'Unavailable'
+                      : pingResult.status === 'timeout'
+                      ? 'Timeout'
+                      : pingResult.status === 'dns_error'
+                      ? 'DNS Error'
+                      : pingResult.status === 'unreachable'
+                      ? 'Unreachable'
+                      : pingResult.status === 'invalid_target'
+                      ? 'Invalid Target'
+                      : pingResult.status === 'error'
+                      ? 'Error'
+                      : latencyMs < 40
+                      ? 'Optimal'
+                      : latencyMs < 100
+                      ? 'Good'
+                      : 'High'}
                   </motion.span>
                 </AnimatePresence>
               </div>
               <div className="mt-0.5 h-7 overflow-hidden">
                 <AnimatedValue
-                  value={pingResult ? (pingResult.status === 'success' ? formatLatency(latencyMs) : pingResult.status === 'timeout' ? 'Timed out' : 'Failed') : '--'}
+                  value={
+                    pingResult
+                      ? pingResult.status === 'success'
+                        ? formatLatency(latencyMs)
+                        : pingResult.status === 'timeout'
+                        ? 'Timed out'
+                        : pingResult.status === 'dns_error'
+                        ? 'DNS error'
+                        : pingResult.status === 'unreachable'
+                        ? 'Unreachable'
+                        : pingResult.status === 'invalid_target'
+                        ? 'Invalid target'
+                        : 'Failed'
+                      : '--'
+                  }
                   className="text-xl font-bold font-mono text-emerald-400"
                 />
               </div>

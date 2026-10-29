@@ -18,6 +18,27 @@ const STORAGE_KEYS = {
   SESSION_ACCUMULATOR: 'netscope_sim_session',
 };
 
+const memoryStorage = new Map<string, string>();
+
+function safeGetStorage(key: string): string | null {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const val = localStorage.getItem(key);
+      if (val !== null) return val;
+    }
+  } catch {}
+  return memoryStorage.get(key) ?? null;
+}
+
+function safeSetStorage(key: string, value: string): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, value);
+    }
+  } catch {}
+  memoryStorage.set(key, value);
+}
+
 // Initial realistic adapters
 const SIMULATED_ADAPTERS: NetworkAdapter[] = [
   {
@@ -82,7 +103,7 @@ class SimulationState {
 
   getBlockedExes(): Set<string> {
     try {
-      const raw = localStorage.getItem(STORAGE_KEYS.BLOCKED_EXES);
+      const raw = safeGetStorage(STORAGE_KEYS.BLOCKED_EXES);
       if (raw) return new Set(JSON.parse(raw));
     } catch {}
     return new Set();
@@ -90,7 +111,7 @@ class SimulationState {
 
   setBlockedExes(blocked: Set<string>): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.BLOCKED_EXES, JSON.stringify(Array.from(blocked)));
+      safeSetStorage(STORAGE_KEYS.BLOCKED_EXES, JSON.stringify(Array.from(blocked)));
     } catch {}
   }
 
@@ -153,8 +174,56 @@ class SimulationState {
     };
   }
 
-  getPing(target: string): PingResult {
-    const cleanTarget = target.trim() || '1.1.1.1';
+  getPing(target: string, timeoutMs = 2000): PingResult {
+    const cleanTarget = target.trim();
+    if (!cleanTarget || cleanTarget.includes(' ') || cleanTarget.includes('/') || cleanTarget.includes('\\')) {
+      return {
+        target: cleanTarget,
+        host: cleanTarget,
+        latencyMs: 0,
+        minLatencyMs: 0,
+        maxLatencyMs: 0,
+        avgLatencyMs: 0,
+        jitterMs: 0,
+        packetLossPercent: 100,
+        status: 'invalid_target',
+        lastChecked: Date.now(),
+        history: [],
+      };
+    }
+
+    if (cleanTarget.includes('nonexistent') || cleanTarget.includes('fake-domain')) {
+      return {
+        target: cleanTarget,
+        host: cleanTarget,
+        latencyMs: 0,
+        minLatencyMs: 0,
+        maxLatencyMs: 0,
+        avgLatencyMs: 0,
+        jitterMs: 0,
+        packetLossPercent: 100,
+        status: 'dns_error',
+        lastChecked: Date.now(),
+        history: [],
+      };
+    }
+
+    if (cleanTarget === '192.0.2.1' || cleanTarget.includes('timeout')) {
+      return {
+        target: cleanTarget,
+        host: cleanTarget,
+        latencyMs: 0,
+        minLatencyMs: 0,
+        maxLatencyMs: 0,
+        avgLatencyMs: 0,
+        jitterMs: 0,
+        packetLossPercent: 100,
+        status: 'timeout',
+        lastChecked: Date.now(),
+        history: [],
+      };
+    }
+
     let baseLatency = 13.5;
     if (cleanTarget.includes('8.8.8.8')) baseLatency = 18.2;
     else if (cleanTarget.includes('9.9.9.9')) baseLatency = 24.6;
@@ -428,41 +497,64 @@ class SimulationState {
 
   private initHistory(): void {
     try {
-      if (!localStorage.getItem(STORAGE_KEYS.HISTORY)) {
+      if (!safeGetStorage(STORAGE_KEYS.HISTORY)) {
         const initial: TrafficHistoryRecord[] = [];
         const now = new Date();
-        for (let i = 23; i >= 0; i--) {
-          const d = new Date(now.getTime() - i * 3600_000);
-          const dateStr = d.toISOString().split('T')[0];
-          const hourStr = `${String(d.getHours()).padStart(2, '0')}:00`;
-          const baseMB = 120 + Math.sin(i / 3) * 80 + Math.random() * 40;
-          const downBytes = Math.round(baseMB * 1024 * 1024);
-          const upBytes = Math.round((baseMB * 0.28) * 1024 * 1024);
+        // Generate past 7 days of hourly records
+        for (let day = 6; day >= 0; day--) {
+          const dayDate = new Date(now.getTime() - day * 86400_000);
+          const dateStr = dayDate.toISOString().split('T')[0];
+          const maxHour = day === 0 ? now.getHours() : 23;
 
-          initial.push({
-            id: `${dateStr}-${hourStr}`,
-            timestamp: d.getTime(),
-            dateStr,
-            hourStr,
-            downloadBytes: downBytes,
-            uploadBytes: upBytes,
-            topApp: i % 2 === 0 ? 'Google Chrome' : 'Discord Canary',
-          });
+          for (let h = 0; h <= maxHour; h++) {
+            const hourStr = `${String(h).padStart(2, '0')}:00`;
+            const entryTime = new Date(dayDate);
+            entryTime.setHours(h, 0, 0, 0);
+
+            const isBusinessHours = h >= 9 && h <= 18;
+            const multiplier = isBusinessHours ? 1.8 : 0.6;
+            const baseMB = (40 + Math.sin(h / 3) * 30 + Math.random() * 20) * multiplier;
+            const downBytes = Math.round(baseMB * 1024 * 1024);
+            const upBytes = Math.round((baseMB * 0.25) * 1024 * 1024);
+
+            initial.push({
+              id: `${dateStr}-${hourStr}`,
+              timestamp: entryTime.getTime(),
+              dateStr,
+              hourStr,
+              downloadBytes: downBytes,
+              uploadBytes: upBytes,
+              topApp: h % 2 === 0 ? 'Wi-Fi 6' : 'Ethernet',
+            });
+          }
         }
-        localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(initial));
+        safeSetStorage(STORAGE_KEYS.HISTORY, JSON.stringify(initial));
       }
     } catch {}
   }
 
   getHistory(range = 'today'): TrafficHistoryRecord[] {
     try {
-      const raw = localStorage.getItem(STORAGE_KEYS.HISTORY);
+      const raw = safeGetStorage(STORAGE_KEYS.HISTORY);
       if (raw) {
         const all: TrafficHistoryRecord[] = JSON.parse(raw);
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+
         if (range === 'today') {
-          const today = new Date().toISOString().split('T')[0];
-          return all.filter(r => r.dateStr === today);
+          return all.filter(r => r.dateStr === todayStr);
         }
+
+        if (range === '7d') {
+          const cutoff = new Date(now.getTime() - 6 * 86400_000).toISOString().split('T')[0];
+          return all.filter(r => r.dateStr >= cutoff);
+        }
+
+        if (range === '30d') {
+          const cutoff = new Date(now.getTime() - 29 * 86400_000).toISOString().split('T')[0];
+          return all.filter(r => r.dateStr >= cutoff);
+        }
+
         return all;
       }
     } catch {}
@@ -471,7 +563,7 @@ class SimulationState {
 
   clearHistory(): boolean {
     try {
-      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([]));
+      safeSetStorage(STORAGE_KEYS.HISTORY, JSON.stringify([]));
       return true;
     } catch {
       return false;
@@ -501,7 +593,7 @@ class SimulationState {
 
   getSettings(): AppSettings {
     try {
-      const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+      const saved = safeGetStorage(STORAGE_KEYS.SETTINGS);
       if (saved) return JSON.parse(saved);
     } catch {}
 
@@ -532,7 +624,7 @@ class SimulationState {
 
   saveSettings(settings: AppSettings): boolean {
     try {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+      safeSetStorage(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
       return true;
     } catch {
       return false;

@@ -9,6 +9,7 @@ import { ConnectionsTab } from './components/connections/ConnectionsTab';
 import { HistoryTab } from './components/history/HistoryTab';
 import { SettingsTab } from './components/settings/SettingsTab';
 import { ToastContainer, ToastMessage } from './components/common/Toast';
+import { NotificationQueue, NotificationType } from './utils/notifications';
 import {
   AdapterDiscoveryStatus,
   NetworkAdapter,
@@ -121,17 +122,29 @@ export default function App() {
   const [historyRange, setHistoryRange] = useState<'today' | '7d' | '30d' | 'all'>('today');
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const notificationQueueRef = useRef(new NotificationQueue());
+  const activePingTargetRef = useRef(activePingTarget);
+  activePingTargetRef.current = activePingTarget;
+  const pingSeqRef = useRef(0);
 
   // Rolling speed chart buffer (bounded in-memory)
   const [speedHistory, setSpeedHistory] = useState<{ time: string; downBps: number; upBps: number }[]>([]);
 
-  const addToast = (title: string, message?: string, type: 'success' | 'error' | 'info' = 'info') => {
-    const id = `toast_${Date.now()}_${Math.random()}`;
-    setToasts(prev => [...prev.slice(-4), { id, title, message, type }]);
+  const addToast = (
+    title: string,
+    message?: string,
+    type: NotificationType = 'info',
+    durationMs?: number
+  ) => {
+    const created = notificationQueueRef.current.add(title, message, type, durationMs);
+    if (created) {
+      setToasts(notificationQueueRef.current.getAll());
+    }
   };
 
   const dismissToast = (id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    notificationQueueRef.current.remove(id);
+    setToasts(notificationQueueRef.current.getAll());
   };
 
   // Aggregate actual ICMP ping probes; failed attempts are not treated as 0 ms.
@@ -144,7 +157,7 @@ export default function App() {
     ].slice(-20);
     pingAttemptsRef.current = attempts;
     const successful = attempts
-      .filter(attempt => attempt.status === 'success' && Number.isFinite(attempt.latencyMs))
+      .filter(attempt => attempt.status === 'success' && Number.isFinite(attempt.latencyMs) && attempt.latencyMs > 0)
       .map(attempt => attempt.latencyMs);
     const jitter = successful.length > 1
       ? successful.slice(1).reduce((sum, value, index) => sum + Math.abs(value - successful[index]), 0) / (successful.length - 1)
@@ -437,7 +450,7 @@ export default function App() {
     };
   }, [isMonitoring, activeTab, historyRange]);
 
-  // ICMP probing runs on a blocking worker, so sample it less often than interface counters.
+  // ICMP probing runs on a worker with explicit timeout and cancellation safeguards
   useEffect(() => {
     if (!isMonitoring) return;
 
@@ -447,20 +460,24 @@ export default function App() {
     const pollPing = async () => {
       if (inFlight || cancelled) return;
       inFlight = true;
+      const currentTarget = activePingTargetRef.current;
+      const seq = ++pingSeqRef.current;
+      const timeoutMs = settings?.diagnostics?.pingTimeoutMs || 2000;
+
       try {
-        const result = await api.getPing(activePingTarget);
-        if (!cancelled) {
+        const result = await api.getPing(currentTarget, timeoutMs);
+        if (!cancelled && pingSeqRef.current === seq && activePingTargetRef.current === currentTarget) {
           pingQueryFailureNotified = false;
           recordPingAttempt(result);
         }
       } catch (error) {
-        console.error('Ping probe failed:', error);
-        if (!cancelled && !pingQueryFailureNotified) {
+        console.warn('Ping probe failed:', error);
+        if (!cancelled && !pingQueryFailureNotified && pingSeqRef.current === seq) {
           pingQueryFailureNotified = true;
           addToast(
             'Ping Probe Failed',
             error instanceof Error ? error.message : String(error),
-            'error'
+            'warning'
           );
         }
       } finally {
@@ -474,7 +491,7 @@ export default function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [isMonitoring, activePingTarget, settings?.diagnostics.pingIntervalMs]);
+  }, [isMonitoring, activePingTarget, settings?.diagnostics.pingIntervalMs, settings?.diagnostics.pingTimeoutMs]);
 
   // Adapter selection drives live counters and is persisted with Settings.
   const handleSelectAdapter = (id: string) => {
@@ -491,35 +508,49 @@ export default function App() {
     addToast('Adapter Selected', id === 'auto' ? 'Default Gateway Auto-Routing' : id, 'info');
   };
 
-  // Handle ping target change
+  // Handle ping target change with sequence-guarded cancellation of stale probes
   const handleSelectPingTarget = async (target: string) => {
     const cleanTarget = target.trim();
     if (!cleanTarget) return;
     setActivePingTarget(cleanTarget);
+    const seq = ++pingSeqRef.current;
+    const timeoutMs = settings?.diagnostics?.pingTimeoutMs || 2000;
+
     try {
-      const res = await api.getPing(cleanTarget);
-      recordPingAttempt(res);
-      setSettings(prev =>
-        prev
-          ? {
-              ...prev,
-              diagnostics: { ...prev.diagnostics, activePingTarget: cleanTarget },
-            }
-          : prev
-      );
-      addToast(
-        res.status === 'success' ? 'Ping Target Switched' : 'Ping Failed',
-        res.status === 'success'
-          ? `Target: ${cleanTarget} (${formatLatency(res.latencyMs)})`
-          : `ICMP ping to ${cleanTarget} failed (${res.status}).`,
-        res.status === 'success' ? 'success' : 'error'
-      );
+      const res = await api.getPing(cleanTarget, timeoutMs);
+      if (pingSeqRef.current === seq) {
+        recordPingAttempt(res);
+        setSettings(prev =>
+          prev
+            ? {
+                ...prev,
+                diagnostics: { ...prev.diagnostics, activePingTarget: cleanTarget },
+              }
+            : prev
+        );
+
+        if (res.status === 'success') {
+          addToast('Ping Target Switched', `Target: ${cleanTarget} (${formatLatency(res.latencyMs)})`, 'success');
+        } else if (res.status === 'dns_error') {
+          addToast('DNS Resolution Failed', `Could not resolve hostname "${cleanTarget}".`, 'warning');
+        } else if (res.status === 'timeout') {
+          addToast('Probe Timed Out', `No response from ${cleanTarget} within ${timeoutMs}ms.`, 'warning');
+        } else if (res.status === 'unreachable') {
+          addToast('Destination Unreachable', `Host ${cleanTarget} is unreachable.`, 'warning');
+        } else if (res.status === 'invalid_target') {
+          addToast('Invalid Target', `"${cleanTarget}" is not a valid hostname or IP.`, 'error');
+        } else {
+          addToast('Probe Error', `Ping probe failed for ${cleanTarget}.`, 'warning');
+        }
+      }
     } catch (error) {
-      addToast(
-        'Probe Failed',
-        error instanceof Error ? error.message : `Could not query ${cleanTarget}`,
-        'error'
-      );
+      if (pingSeqRef.current === seq) {
+        addToast(
+          'Probe Failed',
+          error instanceof Error ? error.message : `Could not query ${cleanTarget}`,
+          'error'
+        );
+      }
     }
   };
 
@@ -824,6 +855,8 @@ export default function App() {
               historyRange={historyRange}
               onRangeChange={setHistoryRange}
               onClearHistory={handleClearHistory}
+              onResetSession={handleResetSession}
+              isMonitoring={isMonitoring}
               onShowToast={(t, m, type) => addToast(t, m, type ?? 'info')}
               accentColor={accentColor}
               currentTheme={theme}

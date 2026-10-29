@@ -11,9 +11,13 @@ pub async fn get_network_adapters() -> Result<Vec<NetworkAdapter>, String> {
 }
 
 #[command]
-pub async fn ping_target(target: Option<String>) -> Result<PingProbeResult, String> {
+pub async fn ping_target(
+    target: Option<String>,
+    timeout_ms: Option<u64>,
+) -> Result<PingProbeResult, String> {
     let host = target.unwrap_or_else(|| "1.1.1.1".to_string());
-    tauri::async_runtime::spawn_blocking(move || PingService::probe(&host, 1500))
+    let timeout = timeout_ms.unwrap_or(2000);
+    tauri::async_runtime::spawn_blocking(move || PingService::probe(&host, timeout))
         .await
         .map_err(|error| format!("Ping worker failed: {error}"))
 }
