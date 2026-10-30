@@ -3,10 +3,15 @@ import { TrafficHistoryRecord } from '../src/types/network';
 import { webSimulation } from '../src/services/webSimulation';
 
 describe('History Timeline & Data Integrity — Priority One Requirements', () => {
-  it('correctly filters date ranges for today, 7d, 30d, and all', () => {
+  it('correctly filters date ranges for today, yesterday, 7d, 30d, and all', () => {
     const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 86400_000).toISOString().split('T')[0];
     const historyToday = webSimulation.getHistory('today');
     expect(historyToday.every(r => r.dateStr === today)).toBe(true);
+
+    const historyYesterday = webSimulation.getHistory('yesterday');
+    expect(historyYesterday.every(r => r.dateStr === yesterday)).toBe(true);
+    expect(historyYesterday.length).toBeGreaterThan(0);
 
     const history7d = webSimulation.getHistory('7d');
     expect(history7d.length).toBeGreaterThan(0);

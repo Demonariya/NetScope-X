@@ -106,6 +106,8 @@ export interface ProcessNetworkUsage {
   connections: SocketConnection[];
 }
 
+export type HistoryRange = 'today' | 'yesterday' | '7d' | '30d' | 'all';
+
 export interface TrafficHistoryRecord {
   id: string;
   timestamp: number;

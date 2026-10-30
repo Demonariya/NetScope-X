@@ -19,6 +19,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { AdapterDiscoveryStatus, NetworkAdapter, NetworkStats, PingResult } from '../../types/network';
 import { formatBytes, formatSpeed, formatLatency, formatJitter, formatPercent } from '../../utils/formatters';
+import { getContrastingUploadColor } from '../../utils/appearance';
 
 interface OverviewTabProps {
   adapters: NetworkAdapter[];
@@ -73,6 +74,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
   const [chartTimeframe, setChartTimeframe] = useState<'30s' | '60s' | '5m'>('30s');
   const [customPingHost, setCustomPingHost] = useState('');
+  const uploadColor = React.useMemo(() => getContrastingUploadColor(accentColor), [accentColor]);
 
   const visibleAdapters = React.useMemo(() => {
     return adapters.filter(a => a.type !== 'virtual' && a.type !== 'loopback');
@@ -376,7 +378,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             <span className="text-slate-400">Download</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-xs bg-teal-400" />
+            <div className="w-2.5 h-2.5 rounded-xs" style={{ backgroundColor: uploadColor }} />
             <span className="text-slate-400">Upload</span>
           </div>
         </div>
@@ -391,8 +393,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <stop offset="95%" stopColor={accentColor} stopOpacity={0.0} />
                 </linearGradient>
                 <linearGradient id="upGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#2dd4bf" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#2dd4bf" stopOpacity={0.0} />
+                  <stop offset="5%" stopColor={uploadColor} stopOpacity={0.4} />
+                  <stop offset="95%" stopColor={uploadColor} stopOpacity={0.0} />
                 </linearGradient>
               </defs>
               <XAxis dataKey="time" stroke={isLight ? '#94a3b8' : '#475569'} fontSize={9} tickLine={false} />
@@ -428,7 +430,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <Area
                 type="monotone"
                 dataKey="upKbps"
-                stroke="#2dd4bf"
+                stroke={uploadColor}
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#upGrad)"

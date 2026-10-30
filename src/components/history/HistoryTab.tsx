@@ -26,14 +26,15 @@ import {
   Bar,
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
-import { TrafficHistoryRecord } from '../../types/network';
+import { TrafficHistoryRecord, HistoryRange } from '../../types/network';
 import { formatBytes } from '../../utils/formatters';
+import { getContrastingUploadColor } from '../../utils/appearance';
 import { api } from '../../services/api';
 
 interface HistoryTabProps {
   history: TrafficHistoryRecord[];
-  historyRange: 'today' | '7d' | '30d' | 'all';
-  onRangeChange: (range: 'today' | '7d' | '30d' | 'all') => void;
+  historyRange: HistoryRange;
+  onRangeChange: (range: HistoryRange) => void;
   onClearHistory: () => void;
   onResetSession?: () => void;
   isMonitoring?: boolean;
@@ -92,10 +93,14 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
   );
   const totalVolume = totalDownload + totalUpload;
 
+  const uploadColor = useMemo(() => getContrastingUploadColor(accentColor), [accentColor]);
+
   // Determine whether to aggregate by day or display hourly intervals
   const isMultiDay = historyRange === '7d' || historyRange === '30d' || historyRange === 'all';
   const effectiveAggregation: 'hourly' | 'daily' =
-    viewMode === 'auto' ? (historyRange === 'today' ? 'hourly' : 'daily') : viewMode;
+    viewMode === 'auto'
+      ? (historyRange === 'today' || historyRange === 'yesterday' ? 'hourly' : 'daily')
+      : viewMode;
 
   // Process data for charts with strict unique keys and unambiguous timestamps
   const chartData = useMemo(() => {
@@ -311,7 +316,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
           {/* Range Pills */}
           <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded border border-slate-800 text-[11px] overflow-x-auto no-scrollbar relative">
             <Calendar className="w-3 h-3 text-slate-500 ml-1.5 mr-0.5 shrink-0" />
-            {(['today', '7d', '30d', 'all'] as const).map(range => (
+            {(['today', 'yesterday', '7d', '30d', 'all'] as const).map(range => (
               <motion.button
                 key={range}
                 onClick={() => onRangeChange(range)}
@@ -331,6 +336,8 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                 )}
                 {range === 'today'
                   ? 'Today'
+                  : range === 'yesterday'
+                  ? 'Yesterday'
                   : range === '7d'
                   ? '7 Days'
                   : range === '30d'
@@ -538,8 +545,8 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                       <stop offset="95%" stopColor={accentColor} stopOpacity={0.0} />
                     </linearGradient>
                     <linearGradient id="histUpGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#2dd4bf" stopOpacity={0.35} />
-                      <stop offset="95%" stopColor="#2dd4bf" stopOpacity={0.0} />
+                      <stop offset="5%" stopColor={uploadColor} stopOpacity={0.35} />
+                      <stop offset="95%" stopColor={uploadColor} stopOpacity={0.0} />
                     </linearGradient>
                   </defs>
                   <XAxis
@@ -575,7 +582,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                               <span>Download:</span>
                               <span className="font-bold">{formatBytes(data.downloadBytes)}</span>
                             </div>
-                            <div className="flex items-center justify-between gap-3 text-teal-400">
+                            <div className="flex items-center justify-between gap-3" style={{ color: uploadColor }}>
                               <span>Upload:</span>
                               <span className="font-bold">{formatBytes(data.uploadBytes)}</span>
                             </div>
@@ -603,7 +610,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   <Area
                     type="monotone"
                     dataKey="upMB"
-                    stroke="#2dd4bf"
+                    stroke={uploadColor}
                     strokeWidth={2}
                     fillOpacity={1}
                     fill="url(#histUpGrad)"
@@ -648,7 +655,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                               <span>Download:</span>
                               <span className="font-bold">{formatBytes(data.downloadBytes)}</span>
                             </div>
-                            <div className="flex items-center justify-between gap-3 text-teal-400">
+                            <div className="flex items-center justify-between gap-3" style={{ color: uploadColor }}>
                               <span>Upload:</span>
                               <span className="font-bold">{formatBytes(data.uploadBytes)}</span>
                             </div>
@@ -672,7 +679,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   />
                   <Bar
                     dataKey="upMB"
-                    fill="#2dd4bf"
+                    fill={uploadColor}
                     radius={[3, 3, 0, 0]}
                     name="Upload"
                   />

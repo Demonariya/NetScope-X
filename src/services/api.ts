@@ -7,6 +7,7 @@ import {
   ProcessNetworkUsage,
   SocketConnection,
   TrafficHistoryRecord,
+  HistoryRange,
   AppSettings,
 } from '../types/network';
 
@@ -169,11 +170,11 @@ export const api = {
     return nativeCommand<SocketConnection[]>('get_active_connections');
   },
 
-  async getHistory(range: 'today' | '7d' | '30d' | 'all' = 'today'): Promise<TrafficHistoryRecord[]> {
+  async getHistory(range: HistoryRange = 'today'): Promise<TrafficHistoryRecord[]> {
     return nativeCommand<TrafficHistoryRecord[]>('get_traffic_history', { range });
   },
 
-  async exportHistory(format: 'csv' | 'json', range: 'today' | '7d' | '30d' | 'all' = 'today'): Promise<string> {
+  async exportHistory(format: 'csv' | 'json', range: HistoryRange = 'today'): Promise<string> {
     return nativeCommand<string>('export_traffic_history', { format, range });
   },
 

@@ -545,6 +545,11 @@ class SimulationState {
           return all.filter(r => r.dateStr === todayStr);
         }
 
+        if (range === 'yesterday') {
+          const yesterdayStr = new Date(now.getTime() - 86400_000).toISOString().split('T')[0];
+          return all.filter(r => r.dateStr === yesterdayStr);
+        }
+
         if (range === '7d') {
           const cutoff = new Date(now.getTime() - 6 * 86400_000).toISOString().split('T')[0];
           return all.filter(r => r.dateStr >= cutoff);

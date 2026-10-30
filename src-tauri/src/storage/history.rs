@@ -27,6 +27,29 @@ fn earliest_date(range: &str, today: chrono::NaiveDate) -> chrono::NaiveDate {
 impl HistoryStorage {
     pub fn get_history(conn: &Connection, range: &str) -> Result<Vec<TrafficHistoryEntry>> {
         let today = chrono::Local::now().date_naive();
+
+        if range == "yesterday" {
+            let yesterday = (today - chrono::Duration::days(1))
+                .format("%Y-%m-%d")
+                .to_string();
+            let mut stmt = conn.prepare(
+                "SELECT id, timestamp, date_str, hour_str, download_bytes, upload_bytes, top_app
+                 FROM hourly_traffic WHERE date_str = ?1 ORDER BY timestamp ASC",
+            )?;
+            let rows = stmt.query_map([yesterday], |row| {
+                Ok(TrafficHistoryEntry {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    date_str: row.get(2)?,
+                    hour_str: row.get(3)?,
+                    download_bytes: row.get(4)?,
+                    upload_bytes: row.get(5)?,
+                    top_app: row.get(6)?,
+                })
+            })?;
+            return rows.collect();
+        }
+
         let earliest = earliest_date(range, today).format("%Y-%m-%d").to_string();
 
         let mut stmt = conn.prepare(
@@ -85,7 +108,7 @@ mod tests {
         let connection = Connection::open_in_memory().expect("in-memory database should open");
         apply_migrations(&connection).expect("history schema should be initialized");
 
-        for days_ago in [0_i64, 6, 7, 29, 30] {
+        for days_ago in [0_i64, 1, 6, 7, 29, 30] {
             let date = today - chrono::Duration::days(days_ago);
             let date_str = date.format("%Y-%m-%d").to_string();
             HistoryStorage::insert_entry(
@@ -103,13 +126,16 @@ mod tests {
             .expect("history row should be inserted");
         }
 
+        let yesterday = HistoryStorage::get_history(&connection, "yesterday")
+            .expect("yesterday query should succeed");
         let seven_days =
             HistoryStorage::get_history(&connection, "7d").expect("seven-day query should succeed");
         let thirty_days = HistoryStorage::get_history(&connection, "30d")
             .expect("thirty-day query should succeed");
 
-        assert_eq!(seven_days.len(), 2);
-        assert_eq!(thirty_days.len(), 4);
+        assert_eq!(yesterday.len(), 1);
+        assert_eq!(seven_days.len(), 3);
+        assert_eq!(thirty_days.len(), 5);
         assert_eq!(
             earliest_date("7d", today),
             today - chrono::Duration::days(6)

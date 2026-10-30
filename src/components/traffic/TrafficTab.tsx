@@ -20,6 +20,7 @@ import {
 import { motion } from 'motion/react';
 import { ProcessNetworkUsage, TrafficHistoryRecord } from '../../types/network';
 import { formatBytes } from '../../utils/formatters';
+import { getContrastingUploadColor } from '../../utils/appearance';
 
 interface TrafficTabProps {
   history: TrafficHistoryRecord[];
@@ -39,6 +40,8 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
     (currentTheme === 'system' &&
       typeof window !== 'undefined' &&
       !window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  const uploadColor = useMemo(() => getContrastingUploadColor(accentColor), [accentColor]);
 
   // Active socket distribution counts
   const totalConns = useMemo(
@@ -288,7 +291,7 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
                             <span>Download:</span>
                             <span className="font-bold">{formatBytes(data.downloadBytes)}</span>
                           </div>
-                          <div className="flex items-center justify-between gap-3 text-teal-400">
+                          <div className="flex items-center justify-between gap-3" style={{ color: uploadColor }}>
                             <span>Upload:</span>
                             <span className="font-bold">{formatBytes(data.uploadBytes)}</span>
                           </div>
@@ -312,7 +315,7 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
                 />
                 <Bar
                   dataKey="upMB"
-                  fill="#2dd4bf"
+                  fill={uploadColor}
                   radius={[3, 3, 0, 0]}
                   name="Upload"
                 />

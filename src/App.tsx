@@ -19,6 +19,7 @@ import {
   ProcessNetworkUsage,
   SocketConnection,
   TrafficHistoryRecord,
+  HistoryRange,
   AppSettings,
 } from './types/network';
 import { api, DEFAULT_SETTINGS, isTauri } from './services/api';
@@ -120,7 +121,7 @@ export default function App() {
   const [processes, setProcesses] = useState<ProcessNetworkUsage[]>([]);
   const [connections, setConnections] = useState<SocketConnection[]>([]);
   const [history, setHistory] = useState<TrafficHistoryRecord[]>([]);
-  const [historyRange, setHistoryRange] = useState<'today' | '7d' | '30d' | 'all'>('today');
+  const [historyRange, setHistoryRange] = useState<HistoryRange>('today');
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const notificationQueueRef = useRef(new NotificationQueue());

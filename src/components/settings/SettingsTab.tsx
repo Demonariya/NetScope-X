@@ -9,8 +9,10 @@ import {
   Moon,
   Sun,
   Laptop,
+  Check,
 } from 'lucide-react';
 import { AppSettings, NetworkAdapter } from '../../types/network';
+import { ACCENT_PALETTE } from '../../utils/appearance';
 
 interface SettingsTabProps {
   settings: AppSettings;
@@ -165,50 +167,34 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             </div>
           </div>
 
-          {/* Locked 405x720 UI Specification */}
-          <div className="py-1 border-b border-slate-800/50 space-y-1">
-            <span className="font-medium text-slate-200 block">Window Resolution</span>
-            <div className="p-2 rounded bg-slate-950 border border-slate-800 font-mono text-[11px] text-sky-400 flex items-center justify-between">
-              <span>405 × 720 px (9:16 Portrait)</span>
-              <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 font-sans">
-                Fixed Window
+          {/* Accent Color Palette */}
+          <div className="py-1 space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="font-medium text-slate-200 block">Accent Palette</span>
+                <span className="text-[11px] text-slate-400">Telemetry highlight and graph stroke</span>
+              </div>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-sky-400">
+                {ACCENT_PALETTE.find(c => c.hex.toLowerCase() === accentColor.toLowerCase())?.label || 'Custom'}
               </span>
             </div>
-            <p className="text-[10px] text-slate-400">
-              The application window is locked strictly to 405 × 720 logical pixels with fixed aspect ratio.
-            </p>
-          </div>
-
-          {/* Accent Color */}
-          <div className="flex items-center justify-between py-1 gap-2">
-            <div>
-              <span className="font-medium text-slate-200 block">Accent Palette</span>
-              <span className="text-[11px] text-slate-400">Telemetry highlight and graph stroke</span>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              {[
-                { hex: '#38bdf8', label: 'Sky' },
-                { hex: '#0ea5e9', label: 'Ocean' },
-                { hex: '#2dd4bf', label: 'Teal' },
-                { hex: '#818cf8', label: 'Indigo' },
-                { hex: '#ec4899', label: 'Pink' },
-                { hex: '#f59e0b', label: 'Amber' },
-              ].map(({ hex, label }) => {
+            <div className="grid grid-cols-6 gap-2 pt-0.5">
+              {ACCENT_PALETTE.map(({ hex, label }) => {
                 const isSelected = accentColor.toLowerCase() === hex.toLowerCase();
                 return (
                   <button
                     key={hex}
                     type="button"
                     onClick={() => handleAccentColorSelect(hex)}
-                    className={`w-5.5 h-5.5 rounded-full border-2 transition-all cursor-pointer flex items-center justify-center ${
+                    className={`h-7 rounded-lg border-2 transition-all cursor-pointer flex items-center justify-center relative shadow-xs ${
                       isSelected
-                        ? 'border-white scale-125 shadow-md shadow-black/40 ring-2 ring-white/30'
-                        : 'border-transparent hover:scale-110 opacity-75 hover:opacity-100'
+                        ? 'border-white ring-2 ring-white/40 scale-105 shadow-md shadow-black/40'
+                        : 'border-slate-800/90 hover:border-slate-600 opacity-85 hover:opacity-100 hover:scale-102'
                     }`}
                     style={{ backgroundColor: hex }}
-                    title={`Accent: ${label} (${hex})`}
+                    title={`${label} (${hex})`}
                   >
-                    {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white shadow-xs" />}
+                    {isSelected && <Check className="w-3.5 h-3.5 text-white drop-shadow stroke-[2.5]" />}
                   </button>
                 );
               })}
@@ -371,6 +357,22 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             </button>
           </div>
         </div>
+      </div>
+
+      {/* 5. Application Information & Version */}
+      <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 font-bold font-mono text-xs">
+            NX
+          </div>
+          <div>
+            <div className="font-semibold text-slate-200">NetScope X</div>
+            <div className="text-[11px] text-slate-400">Windows Network Intelligence Suite</div>
+          </div>
+        </div>
+        <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-sky-400">
+          v0.0.1
+        </span>
       </div>
     </div>
   );
