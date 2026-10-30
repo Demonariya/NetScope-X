@@ -809,15 +809,13 @@ export default function App() {
 
         {/* Viewport Content Area with Vertical Scrolling and Fluid Tab Transitions */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden relative min-h-0 w-full">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-              className="w-full min-h-full"
-            >
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.14, ease: 'easeOut' }}
+            className="w-full min-h-full"
+          >
               {activeTab === 'overview' && (
                 <OverviewTab
                   adapters={adapters}
@@ -888,7 +886,6 @@ export default function App() {
                 />
               )}
             </motion.div>
-          </AnimatePresence>
         </div>
 
         {/* Dedicated 9:16 Portrait Bottom Navigation Bar */}

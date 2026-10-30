@@ -35,8 +35,8 @@ interface OverviewTabProps {
 }
 
 /**
- * Animated metric value component that renders fluid vertical entry and exit transitions
- * whenever the underlying numerical or textual value changes.
+ * Stable, high-precision metric value component rendering crisp tabular numerals
+ * without jittery vertical displacement or blur filters during real-time telemetry updates.
  */
 const AnimatedValue: React.FC<{
   value: string | number;
@@ -44,19 +44,10 @@ const AnimatedValue: React.FC<{
   className?: string;
   unitClassName?: string;
 }> = ({ value, unit, className = '', unitClassName = '' }) => (
-  <span className="inline-flex items-baseline gap-1.5 overflow-hidden">
-    <AnimatePresence mode="popLayout" initial={false}>
-      <motion.span
-        key={String(value)}
-        initial={{ opacity: 0, y: -6, filter: 'blur(1px)' }}
-        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-        exit={{ opacity: 0, y: 6, filter: 'blur(1px)' }}
-        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-        className={`inline-block tabular-nums ${className}`}
-      >
-        {value}
-      </motion.span>
-    </AnimatePresence>
+  <span className="inline-flex items-baseline gap-1.5 font-mono">
+    <span className={`inline-block tabular-nums ${className}`}>
+      {value}
+    </span>
     {unit && <span className={unitClassName}>{unit}</span>}
   </span>
 );
@@ -134,12 +125,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   return (
     <div className="space-y-3 p-3 w-full pb-16">
       {/* 1. Connection Status Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -10 }}
-        transition={{ duration: 0.25, ease: 'easeOut' }}
-        className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 shadow-sm"
+      <div
+        className={`rounded-xl border p-3 shadow-sm transition-all duration-200 ${
+          isLight
+            ? 'bg-white/90 border-slate-200 hover:border-slate-300'
+            : 'bg-slate-900/80 border-slate-800/80 hover:border-slate-700/80'
+        }`}
       >
         <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800/60">
           <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -241,31 +232,40 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             </div>
           </motion.div>
         </AnimatePresence>
-      </motion.div>
+      </div>
 
       {/* 2. Download and Upload Speed Cards */}
       <div className="space-y-2.5">
         {/* Download Rate Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.25, delay: 0.05, ease: 'easeOut' }}
-          className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 relative overflow-hidden"
+        <div
+          className={`rounded-xl border p-3 relative overflow-hidden transition-all duration-200 ${
+            isLight
+              ? 'bg-white/90 border-slate-200 shadow-sm hover:border-sky-300'
+              : 'bg-slate-900/80 border-slate-800/80 hover:border-slate-700/90'
+          }`}
         >
+          {/* Subtle top indicator bar */}
+          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-sky-400 to-blue-500 opacity-90" />
+          
           <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
             <div className="flex items-center gap-1.5">
               <div className="w-5 h-5 rounded-md bg-sky-500/10 flex items-center justify-center text-sky-400 shrink-0">
                 <ArrowDown className="w-3.5 h-3.5" />
               </div>
               <span className="font-medium text-slate-300">Download Throughput</span>
+              {(liveStats?.downloadBps || 0) > 50_000 && (
+                <span className="relative flex h-1.5 w-1.5 ml-0.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-sky-400" />
+                </span>
+              )}
             </div>
             <span className="text-[11px] text-slate-400 font-mono">
               Session: <AnimatedValue value={liveStats ? formatBytes(liveStats.sessionDownloadBytes) : '--'} />
             </span>
           </div>
 
-          <div className="flex items-baseline gap-2 mt-1.5 h-9 overflow-hidden">
+          <div className="flex items-baseline gap-2 mt-1.5 h-9">
             <AnimatedValue
               value={liveStats ? downSpeed.value : '--'}
               unit={liveStats ? downSpeed.unit : ''}
@@ -280,29 +280,38 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <AnimatedValue value={liveStats ? formatBytes(liveStats.dailyDownloadBytes) : '--'} />
             </span>
           </div>
-        </motion.div>
+        </div>
 
         {/* Upload Rate Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.25, delay: 0.1, ease: 'easeOut' }}
-          className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 relative overflow-hidden"
+        <div
+          className={`rounded-xl border p-3 relative overflow-hidden transition-all duration-200 ${
+            isLight
+              ? 'bg-white/90 border-slate-200 shadow-sm hover:border-teal-300'
+              : 'bg-slate-900/80 border-slate-800/80 hover:border-slate-700/90'
+          }`}
         >
+          {/* Subtle top indicator bar */}
+          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-teal-400 to-emerald-500 opacity-90" />
+          
           <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
             <div className="flex items-center gap-1.5">
               <div className="w-5 h-5 rounded-md bg-teal-500/10 flex items-center justify-center text-teal-400 shrink-0">
                 <ArrowUp className="w-3.5 h-3.5" />
               </div>
               <span className="font-medium text-slate-300">Upload Throughput</span>
+              {(liveStats?.uploadBps || 0) > 30_000 && (
+                <span className="relative flex h-1.5 w-1.5 ml-0.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-teal-400" />
+                </span>
+              )}
             </div>
             <span className="text-[11px] text-slate-400 font-mono">
               Session: <AnimatedValue value={liveStats ? formatBytes(liveStats.sessionUploadBytes) : '--'} />
             </span>
           </div>
 
-          <div className="flex items-baseline gap-2 mt-1.5 h-9 overflow-hidden">
+          <div className="flex items-baseline gap-2 mt-1.5 h-9">
             <AnimatedValue
               value={liveStats ? upSpeed.value : '--'}
               unit={liveStats ? upSpeed.unit : ''}
@@ -317,16 +326,16 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <AnimatedValue value={liveStats ? formatBytes(liveStats.dailyUploadBytes) : '--'} />
             </span>
           </div>
-        </motion.div>
+        </div>
       </div>
 
       {/* 3. Live Traffic Graph Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -10 }}
-        transition={{ duration: 0.25, delay: 0.15, ease: 'easeOut' }}
-        className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3"
+      <div
+        className={`rounded-xl border p-3 shadow-sm transition-all duration-200 ${
+          isLight
+            ? 'bg-white/90 border-slate-200 hover:border-slate-300'
+            : 'bg-slate-900/80 border-slate-800/80 hover:border-slate-700/80'
+        }`}
       >
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-1.5">
@@ -428,15 +437,15 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             </AreaChart>
           </ResponsiveContainer>
         </div>
-      </motion.div>
+      </div>
 
       {/* 4. ICMP Ping Latency Section */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -10 }}
-        transition={{ duration: 0.25, delay: 0.2, ease: 'easeOut' }}
-        className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3"
+      <div
+        className={`rounded-xl border p-3 shadow-sm transition-all duration-200 ${
+          isLight
+            ? 'bg-white/90 border-slate-200 hover:border-slate-300'
+            : 'bg-slate-900/80 border-slate-800/80 hover:border-slate-700/80'
+        }`}
       >
         <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800/60">
           <div className="flex items-center gap-1.5">
@@ -488,42 +497,35 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
                   Current Ping Latency
                 </span>
-                <AnimatePresence mode="popLayout" initial={false}>
-                  <motion.span
-                    key={pingResult?.status ?? 'none'}
-                    initial={{ opacity: 0, scale: 0.85 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.85 }}
-                    transition={{ duration: 0.18 }}
-                    className={`text-[9px] px-1 py-0.2 rounded font-semibold uppercase ${
-                      !lastProbeSucceeded
-                        ? 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
-                        : latencyMs < 40
-                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                        : latencyMs < 100
-                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                        : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
-                    }`}
-                  >
-                    {!pingResult
-                      ? 'Unavailable'
-                      : pingResult.status === 'timeout'
-                      ? 'Timeout'
-                      : pingResult.status === 'dns_error'
-                      ? 'DNS Error'
-                      : pingResult.status === 'unreachable'
-                      ? 'Unreachable'
-                      : pingResult.status === 'invalid_target'
-                      ? 'Invalid Target'
-                      : pingResult.status === 'error'
-                      ? 'Error'
+                <span
+                  className={`text-[9px] px-1 py-0.2 rounded font-semibold uppercase transition-colors duration-200 ${
+                    !lastProbeSucceeded
+                      ? 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
                       : latencyMs < 40
-                      ? 'Optimal'
+                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                       : latencyMs < 100
-                      ? 'Good'
-                      : 'High'}
-                  </motion.span>
-                </AnimatePresence>
+                      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                      : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                  }`}
+                >
+                  {!pingResult
+                    ? 'Unavailable'
+                    : pingResult.status === 'timeout'
+                    ? 'Timeout'
+                    : pingResult.status === 'dns_error'
+                    ? 'DNS Error'
+                    : pingResult.status === 'unreachable'
+                    ? 'Unreachable'
+                    : pingResult.status === 'invalid_target'
+                    ? 'Invalid Target'
+                    : pingResult.status === 'error'
+                    ? 'Error'
+                    : latencyMs < 40
+                    ? 'Optimal'
+                    : latencyMs < 100
+                    ? 'Good'
+                    : 'High'}
+                </span>
               </div>
               <div className="mt-0.5 h-7 overflow-hidden">
                 <AnimatedValue
@@ -650,7 +652,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             Probe
           </button>
         </form>
-      </motion.div>
+      </div>
     </div>
   );
 };
