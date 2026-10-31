@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { listen } from '@tauri-apps/api/event';
 import { TitleBar } from './components/layout/TitleBar';
@@ -132,22 +132,32 @@ export default function App() {
   // Rolling speed chart buffer (bounded in-memory)
   const [speedHistory, setSpeedHistory] = useState<{ time: string; downBps: number; upBps: number }[]>([]);
 
-  const addToast = (
+  const addToast = useCallback((
     title: string,
     message?: string,
     type: NotificationType = 'info',
-    durationMs?: number
+    durationMs = 5000
   ) => {
     const created = notificationQueueRef.current.add(title, message, type, durationMs);
     if (created) {
       setToasts(notificationQueueRef.current.getAll());
     }
-  };
+  }, []);
 
-  const dismissToast = (id: string) => {
+  const dismissToast = useCallback((id: string) => {
     notificationQueueRef.current.remove(id);
     setToasts(notificationQueueRef.current.getAll());
-  };
+  }, []);
+
+  // Periodic sweep guaranteeing that notifications strictly auto-dismiss after exactly 5 seconds
+  useEffect(() => {
+    const sweepTimer = window.setInterval(() => {
+      if (notificationQueueRef.current.pruneExpired()) {
+        setToasts(notificationQueueRef.current.getAll());
+      }
+    }, 250);
+    return () => window.clearInterval(sweepTimer);
+  }, []);
 
   // Aggregate actual ICMP ping probes; failed attempts are not treated as 0 ms.
   const recordPingAttempt = (result: PingResult) => {
@@ -451,6 +461,30 @@ export default function App() {
       if (timer !== undefined) window.clearInterval(timer);
     };
   }, [isMonitoring, activeTab, historyRange]);
+
+  // Periodically refresh network adapters and signal telemetry while overview tab is active
+  useEffect(() => {
+    if (!isMonitoring || activeTab !== 'overview') return;
+    let cancelled = false;
+    const refreshAdapters = async () => {
+      try {
+        const found = await api.getAdapters();
+        if (cancelled) return;
+        const physical = found.filter(a => a.type !== 'virtual' && a.type !== 'loopback');
+        if (physical.length > 0) {
+          setAdapters(physical);
+        }
+      } catch {
+        // Silently tolerate background adapter poll jitter
+      }
+    };
+
+    const timer = window.setInterval(() => { void refreshAdapters(); }, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isMonitoring, activeTab]);
 
   // ICMP probing runs on a worker with explicit timeout and cancellation safeguards
   useEffect(() => {
@@ -787,10 +821,10 @@ export default function App() {
         isLightEffective ? 'bg-slate-200 text-slate-900' : 'bg-[#070a0f] text-slate-100'
       }`}
     >
-      {/* Strict 405 × 720 px, 9:16 Portrait Canvas Frame */}
+      {/* Strict 405 × 720 px, 9:16 Portrait Canvas Frame (Responsive Container) */}
       <div
-        style={{ width: '405px', height: '720px' }}
-        className={`max-w-full max-h-[100dvh] aspect-[9/16] flex flex-col overflow-hidden relative shadow-2xl rounded-none sm:rounded-2xl mx-auto border transition-colors duration-200 ${
+        style={{ width: '100%', maxWidth: '405px', height: '100%', maxHeight: '720px' }}
+        className={`w-full max-w-[405px] h-full max-h-[720px] aspect-[9/16] flex flex-col overflow-hidden relative shadow-2xl rounded-none sm:rounded-2xl mx-auto border transition-colors duration-200 ${
           isLightEffective
             ? 'bg-white border-slate-300 text-slate-900 shadow-slate-400/40'
             : 'bg-[#0b0f17] border-slate-800/80 text-slate-100 shadow-black/60'
@@ -895,10 +929,10 @@ export default function App() {
           onTabChange={setActiveTab}
           accentColor={accentColor}
         />
-      </div>
 
-      {/* Toast Notification Container */}
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+        {/* Toast Notification Container with 5-Second Timer */}
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      </div>
     </div>
   );
 }

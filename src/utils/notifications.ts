@@ -12,10 +12,10 @@ export interface ToastNotification {
 export const MAX_SIMULTANEOUS_NOTIFICATIONS = 5;
 
 const DEFAULT_DURATIONS: Record<NotificationType, number> = {
-  error: 6000,
+  error: 5000,
   warning: 5000,
-  success: 3500,
-  info: 3500,
+  success: 5000,
+  info: 5000,
 };
 
 const DEDUPE_WINDOW_MS = 3500;
@@ -86,6 +86,12 @@ export class NotificationQueue {
 
   public remove(id: string): void {
     this.notifications = this.notifications.filter(n => n.id !== id);
+  }
+
+  public pruneExpired(now = Date.now()): boolean {
+    const initialCount = this.notifications.length;
+    this.notifications = this.notifications.filter(n => (now - n.createdAt) < (n.durationMs || 5000));
+    return this.notifications.length !== initialCount;
   }
 
   public clear(): void {

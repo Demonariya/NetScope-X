@@ -65,16 +65,16 @@ describe('NotificationQueue — Priority Six Requirements', () => {
     const inf = queue.add('Info Title', 'Info msg', 'info');
 
     expect(err?.type).toBe('error');
-    expect(err?.durationMs).toBe(6000); // Critical errors stay longer
+    expect(err?.durationMs).toBe(5000);
 
     expect(warn?.type).toBe('warning');
     expect(warn?.durationMs).toBe(5000);
 
     expect(succ?.type).toBe('success');
-    expect(succ?.durationMs).toBe(3500);
+    expect(succ?.durationMs).toBe(5000);
 
     expect(inf?.type).toBe('info');
-    expect(inf?.durationMs).toBe(3500);
+    expect(inf?.durationMs).toBe(5000);
 
     expect(queue.count()).toBe(4);
   });

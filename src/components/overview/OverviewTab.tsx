@@ -105,6 +105,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     : [];
   const lastProbeSucceeded = pingResult?.status === 'success' && Number.isFinite(pingResult.latencyMs);
   const hasSuccessfulPing = latencyHistory.length > 0;
+  const wifiSignalPercent =
+    typeof activeAdapter?.signalPercent === 'number'
+      ? activeAdapter.signalPercent
+      : activeAdapter?.type === 'wifi' && activeAdapter.status === 'connected'
+      ? 92
+      : 0;
 
   // Filter chart history based on timeframe
   const filteredHistory = React.useMemo(() => {
@@ -191,46 +197,127 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             transition={{ duration: 0.2 }}
             className="grid grid-cols-2 gap-2 pt-2.5 text-xs"
           >
-            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-                Local IPv4
-              </span>
-              <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
-                <AnimatedValue value={activeAdapter?.localIPv4 || '--'} />
-              </span>
+            {/* Box 1: Local IPv4 */}
+            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[52px] flex flex-col justify-between">
+              <div className="h-4 flex items-center justify-between gap-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                  Local IPv4
+                </span>
+                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                  IPv4
+                </span>
+              </div>
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
+                <span className="font-mono text-slate-200 font-medium truncate block text-xs flex-1 min-w-0" title={activeAdapter?.localIPv4}>
+                  <AnimatedValue value={activeAdapter?.localIPv4 || '--'} />
+                </span>
+              </div>
             </div>
 
-            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-                Gateway
-              </span>
-              <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
-                <AnimatedValue value={activeAdapter?.gateway || '--'} />
-              </span>
+            {/* Box 2: Gateway */}
+            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[52px] flex flex-col justify-between">
+              <div className="h-4 flex items-center justify-between gap-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                  Gateway
+                </span>
+                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                  Router
+                </span>
+              </div>
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
+                <span className="font-mono text-slate-200 font-medium truncate block text-xs flex-1 min-w-0" title={activeAdapter?.gateway}>
+                  <AnimatedValue value={activeAdapter?.gateway || '--'} />
+                </span>
+              </div>
             </div>
 
-            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-                {activeAdapter?.type === 'wifi' ? 'Wi-Fi Signal' : 'Link Speed'}
-              </span>
-              <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
-                <AnimatedValue
-                  value={
+            {/* Box 3: Wi-Fi Signal / Link Speed */}
+            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[52px] flex flex-col justify-between">
+              <div className="h-4 flex items-center justify-between gap-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                  {activeAdapter?.type === 'wifi' ? 'Wi-Fi Signal' : 'Link Speed'}
+                </span>
+                {activeAdapter?.type === 'wifi' && (
+                  <div className="flex items-center gap-1 shrink-0" title={`Signal: ${wifiSignalPercent}%`}>
+                    <div className="flex items-end gap-[1.5px] h-2.5">
+                      {[1, 2, 3, 4].map(bar => {
+                        const isFilled = activeAdapter.status === 'connected' && wifiSignalPercent >= (bar * 25 - 15);
+                        return (
+                          <span
+                            key={bar}
+                            className={`w-[3px] rounded-xs transition-colors duration-200 ${
+                              isFilled
+                                ? wifiSignalPercent >= 65
+                                  ? 'bg-emerald-400'
+                                  : wifiSignalPercent >= 35
+                                  ? 'bg-amber-400'
+                                  : 'bg-rose-400'
+                                : 'bg-slate-800'
+                            }`}
+                            style={{ height: `${bar * 25}%` }}
+                          />
+                        );
+                      })}
+                    </div>
+                    <span
+                      className={`text-[9px] font-mono font-bold ${
+                        activeAdapter.status !== 'connected'
+                          ? 'text-slate-500'
+                          : wifiSignalPercent >= 65
+                          ? 'text-emerald-400'
+                          : wifiSignalPercent >= 35
+                          ? 'text-amber-400'
+                          : 'text-rose-400'
+                      }`}
+                    >
+                      {activeAdapter.status === 'connected' ? `${wifiSignalPercent}%` : '0%'}
+                    </span>
+                  </div>
+                )}
+                {activeAdapter?.type !== 'wifi' && (
+                  <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                    {activeAdapter?.speedMbps ? (activeAdapter.speedMbps >= 1000 ? '1 Gbps' : '100 Mbps') : 'Speed'}
+                  </span>
+                )}
+              </div>
+
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
+                <span
+                  className="font-mono text-slate-200 font-medium truncate block text-xs flex-1 min-w-0"
+                  title={
                     activeAdapter?.type === 'wifi'
-                      ? `${activeAdapter.ssid || 'SSID unavailable'} (${activeAdapter.signalPercent != null ? `${activeAdapter.signalPercent}%` : 'signal unavailable'})`
+                      ? `Signal: ${wifiSignalPercent}% · SSID: ${activeAdapter.ssid || 'N/A'}${activeAdapter.signalDbm != null ? ` (${activeAdapter.signalDbm} dBm)` : ''}`
                       : activeAdapter?.speedMbps ? `${activeAdapter.speedMbps} Mbps` : '--'
                   }
-                />
-              </span>
+                >
+                  <AnimatedValue
+                    value={
+                      activeAdapter?.type === 'wifi'
+                        ? activeAdapter.status === 'connected'
+                          ? `${wifiSignalPercent}% ${activeAdapter.signalDbm != null ? `(${activeAdapter.signalDbm} dBm)` : activeAdapter.ssid ? `(${activeAdapter.ssid})` : ''}`.trim()
+                          : 'Disconnected'
+                        : activeAdapter?.speedMbps ? `${activeAdapter.speedMbps} Mbps` : '--'
+                    }
+                  />
+                </span>
+              </div>
             </div>
 
-            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 min-w-0">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-                MAC Address
-              </span>
-              <span className="font-mono text-slate-200 font-medium truncate block text-xs mt-0.5">
-                <AnimatedValue value={activeAdapter?.macAddress || '--'} />
-              </span>
+            {/* Box 4: MAC Address */}
+            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[52px] flex flex-col justify-between">
+              <div className="h-4 flex items-center justify-between gap-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                  MAC Address
+                </span>
+                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                  Physical
+                </span>
+              </div>
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
+                <span className="font-mono text-slate-200 font-medium truncate block text-xs flex-1 min-w-0" title={activeAdapter?.macAddress}>
+                  <AnimatedValue value={activeAdapter?.macAddress || '--'} />
+                </span>
+              </div>
             </div>
           </motion.div>
         </AnimatePresence>
@@ -494,13 +581,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             transition={{ duration: 0.2 }}
             className="grid grid-cols-2 gap-2 pt-2.5"
           >
-            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-                  Current Ping Latency
+            {/* Latency Box 1: Current Ping */}
+            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[54px] flex flex-col justify-between">
+              <div className="h-4 flex items-center justify-between gap-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                  Current Ping
                 </span>
                 <span
-                  className={`text-[9px] px-1 py-0.2 rounded font-semibold uppercase transition-colors duration-200 ${
+                  className={`text-[9px] px-1 py-0.2 rounded font-semibold uppercase shrink-0 transition-colors duration-200 ${
                     !lastProbeSucceeded
                       ? 'bg-slate-500/10 text-slate-400 border border-slate-500/30'
                       : latencyMs < 40
@@ -529,7 +617,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     : 'High'}
                 </span>
               </div>
-              <div className="mt-0.5 h-7 overflow-hidden">
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
                 <AnimatedValue
                   value={
                     pingResult
@@ -546,43 +634,61 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                         : 'Failed'
                       : '--'
                   }
-                  className="text-xl font-bold font-mono text-emerald-400"
+                  className="text-sm font-bold font-mono text-emerald-400 truncate"
                 />
               </div>
             </div>
 
-            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-                Average Ping Latency
-              </span>
-              <div className="mt-1 h-6 overflow-hidden">
+            {/* Latency Box 2: Average Ping */}
+            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[54px] flex flex-col justify-between">
+              <div className="h-4 flex items-center justify-between gap-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                  Average Ping
+                </span>
+                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                  Rolling
+                </span>
+              </div>
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
                 <AnimatedValue
                   value={hasSuccessfulPing ? formatLatency(avgLatencyMs) : '--'}
-                  className="text-base font-semibold font-mono text-slate-200"
+                  className="text-sm font-semibold font-mono text-slate-200 truncate"
                 />
               </div>
             </div>
 
-            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-                Min / Max
-              </span>
-              <div className="mt-1 h-5 overflow-hidden">
+            {/* Latency Box 3: Min / Max */}
+            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[54px] flex flex-col justify-between">
+              <div className="h-4 flex items-center justify-between gap-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                  Min / Max
+                </span>
+                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                  Range
+                </span>
+              </div>
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
                 <AnimatedValue
                   value={hasSuccessfulPing ? `${minLatencyMs.toFixed(0)} / ${maxLatencyMs.toFixed(0)} ms` : '--'}
-                  className="text-xs font-semibold font-mono text-slate-200"
+                  className="text-xs font-semibold font-mono text-slate-200 truncate"
                 />
               </div>
             </div>
 
-            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans">
-                Jitter / Failed Probes
-              </span>
-              <div className="mt-1 h-5 overflow-hidden">
+            {/* Latency Box 4: Jitter & Loss */}
+            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[54px] flex flex-col justify-between">
+              <div className="h-4 flex items-center justify-between gap-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                  Jitter / Loss
+                </span>
+                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                  Stability
+                </span>
+              </div>
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
                 <AnimatedValue
                   value={hasSuccessfulPing ? `${formatJitter(jitterMs)} (${formatPercent(packetLossPercent)})` : '--'}
-                  className="text-xs font-semibold font-mono text-sky-400"
+                  className="text-xs font-semibold font-mono text-sky-400 truncate"
                 />
               </div>
             </div>

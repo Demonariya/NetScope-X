@@ -109,6 +109,22 @@ class SimulationState {
     return new Set();
   }
 
+  getAdapters(): NetworkAdapter[] {
+    const jitter = Math.round(Math.sin(Date.now() / 4000) * 3);
+    return SIMULATED_ADAPTERS.map(adapter => {
+      if (adapter.type === 'wifi' && adapter.status === 'connected') {
+        const signalPercent = Math.max(75, Math.min(98, 92 + jitter));
+        const signalDbm = Math.round(-100 + signalPercent / 2);
+        return {
+          ...adapter,
+          signalPercent,
+          signalDbm,
+        };
+      }
+      return adapter;
+    });
+  }
+
   setBlockedExes(blocked: Set<string>): void {
     try {
       safeSetStorage(STORAGE_KEYS.BLOCKED_EXES, JSON.stringify(Array.from(blocked)));

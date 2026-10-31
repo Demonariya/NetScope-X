@@ -31,7 +31,7 @@ declare global {
 async function handleWebSimulation<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   switch (cmd) {
     case 'get_network_adapters':
-      return Promise.resolve(SIMULATED_ADAPTERS as unknown as T);
+      return Promise.resolve(webSimulation.getAdapters() as unknown as T);
     case 'get_live_network_stats':
       return Promise.resolve(
         webSimulation.getLiveStats((args?.adapterId as string) || 'auto') as unknown as T

@@ -131,6 +131,26 @@ try {
   # DNS is optional metadata.
 }
 
+$wifiDetails = @{}
+try {
+  $netshOutput = @(netsh wlan show interfaces 2>$null)
+  if ($netshOutput) {
+    $curSsid = $null
+    $curSignal = $null
+    foreach ($line in $netshOutput) {
+      if ($line -match '^\s*SSID\s*:\s*(.+)$') {
+        $curSsid = [string]$Matches[1].Trim()
+      } elseif ($line -match '^\s*Signal\s*:\s*([0-9]+)%') {
+        $curSignal = [int]$Matches[1]
+      }
+    }
+    if ($curSsid) { $wifiDetails['ssid'] = $curSsid }
+    if ($null -ne $curSignal) { $wifiDetails['signal'] = $curSignal }
+  }
+} catch {
+  # Wi-Fi metadata is optional
+}
+
 $rows = @(
   Get-NetAdapter -ErrorAction Stop |
     Where-Object {
@@ -170,6 +190,10 @@ $rows = @(
         }
       }
 
+      $adapterSsid = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('ssid')) { [string]$wifiDetails['ssid'] } else { $null }
+      $adapterSignal = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('signal')) { [int]$wifiDetails['signal'] } else { $null }
+      $adapterDbm = if ($adapterSignal -ne $null) { [int][math]::Round(-100 + ($adapterSignal / 2)) } else { $null }
+
       [pscustomobject]@{
         id = [string]$adapter.ifIndex
         name = $adapterName
@@ -181,9 +205,9 @@ $rows = @(
         macAddress = [string]$adapter.MacAddress
         gateway = $gateway
         dnsServers = @($dns)
-        signalPercent = $null
-        signalDbm = $null
-        ssid = $null
+        signalPercent = $adapterSignal
+        signalDbm = $adapterDbm
+        ssid = $adapterSsid
         speedMbps = $speed
         isDefault = -not [string]::IsNullOrWhiteSpace($gateway)
       }

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { CheckCircle2, AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { NotificationType, ToastNotification, MAX_SIMULTANEOUS_NOTIFICATIONS } from '../../utils/notifications';
@@ -18,7 +18,7 @@ export const ToastContainer: React.FC<ToastProps> = ({ toasts, onDismiss }) => {
     <div
       aria-live="polite"
       aria-atomic="false"
-      className="fixed bottom-3 right-3 z-50 flex flex-col gap-1.5 max-w-[340px] w-full pointer-events-none"
+      className="absolute bottom-16 left-3 right-3 z-50 flex flex-col gap-1.5 pointer-events-none"
     >
       <AnimatePresence mode="popLayout">
         {visibleToasts.map(toast => (
@@ -33,12 +33,19 @@ const ToastItem: React.FC<{ toast: ToastNotification; onDismiss: (id: string) =>
   toast,
   onDismiss,
 }) => {
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+  const durationMs = toast.durationMs || 5000;
+
   useEffect(() => {
+    const elapsed = Date.now() - toast.createdAt;
+    const remaining = Math.max(100, Math.min(durationMs, durationMs - elapsed));
+
     const timer = window.setTimeout(() => {
-      onDismiss(toast.id);
-    }, toast.durationMs || 4000);
+      onDismissRef.current(toast.id);
+    }, remaining);
     return () => window.clearTimeout(timer);
-  }, [toast.id, toast.durationMs, onDismiss]);
+  }, [toast.id, toast.createdAt, durationMs]);
 
   const icons: Record<NotificationType, React.ReactNode> = {
     success: <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />,
@@ -54,6 +61,13 @@ const ToastItem: React.FC<{ toast: ToastNotification; onDismiss: (id: string) =>
     info: 'border-sky-500/35 bg-slate-900/95 shadow-sky-500/5',
   };
 
+  const progressColors: Record<NotificationType, string> = {
+    success: 'bg-emerald-400',
+    warning: 'bg-amber-400',
+    error: 'bg-rose-400',
+    info: 'bg-sky-400',
+  };
+
   return (
     <motion.div
       layout
@@ -62,10 +76,10 @@ const ToastItem: React.FC<{ toast: ToastNotification; onDismiss: (id: string) =>
       exit={{ opacity: 0, scale: 0.92, transition: { duration: 0.15 } }}
       transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
       role={toast.type === 'error' ? 'alert' : 'status'}
-      className={`pointer-events-auto flex items-start gap-2.5 p-2.5 rounded-lg border backdrop-blur-md shadow-xl text-slate-200 ${borderClasses[toast.type]}`}
+      className={`pointer-events-auto relative overflow-hidden flex items-start gap-2.5 p-2.5 rounded-lg border backdrop-blur-md shadow-xl text-slate-200 ${borderClasses[toast.type]}`}
     >
       <div className="pt-0.5">{icons[toast.type]}</div>
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 pr-1">
         <p className="text-xs font-semibold text-slate-100 leading-tight">{toast.title}</p>
         {toast.message && (
           <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed break-words">
@@ -76,10 +90,20 @@ const ToastItem: React.FC<{ toast: ToastNotification; onDismiss: (id: string) =>
       <button
         onClick={() => onDismiss(toast.id)}
         aria-label="Dismiss notification"
-        className="text-slate-500 hover:text-slate-300 p-0.5 rounded transition-colors shrink-0"
+        className="text-slate-500 hover:text-slate-300 p-0.5 rounded transition-colors shrink-0 cursor-pointer"
       >
         <X className="w-3.5 h-3.5" />
       </button>
+
+      {/* 5-second countdown progress bar */}
+      <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-slate-800/80 overflow-hidden">
+        <motion.div
+          initial={{ width: '100%' }}
+          animate={{ width: '0%' }}
+          transition={{ duration: durationMs / 1000, ease: 'linear' }}
+          className={`h-full ${progressColors[toast.type]}`}
+        />
+      </div>
     </motion.div>
   );
 };
