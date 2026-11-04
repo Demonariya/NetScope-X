@@ -60,10 +60,10 @@ impl ApplicationPriority {
     /// Maps application priority to Windows QoS DSCP value.
     pub fn to_dscp_action(&self) -> u32 {
         match self {
-            Self::Critical => 46, // Expedited Forwarding (EF)
-            Self::High => 34,     // AF41
-            Self::Normal => 0,    // Best Effort
-            Self::Low => 10,      // AF11
+            Self::Critical => 46,  // Expedited Forwarding (EF)
+            Self::High => 34,      // AF41
+            Self::Normal => 0,     // Best Effort
+            Self::Low => 10,       // AF11
             Self::Background => 8, // CS1
         }
     }
@@ -101,7 +101,7 @@ pub struct BandwidthLimitRule {
     pub upload_enabled: bool,
     pub priority: ApplicationPriority,
     pub adapter_alias: Option<String>,
-    pub upload_enforcement: String,   // "enforced", "failed", "disabled"
+    pub upload_enforcement: String, // "enforced", "failed", "disabled"
     pub download_enforcement: String, // "advisory", "unsupported"
     pub enforcement_message: Option<String>,
     #[serde(default)]

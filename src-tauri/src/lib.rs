@@ -104,7 +104,8 @@ pub fn run() {
                         let app_handle = window.app_handle().clone();
                         let _task = tauri::async_runtime::spawn_blocking(move || {
                             crate::monitoring::lifecycle::LifecycleManager::cleanup();
-                            let _ = crate::bandwidth::WindowsQosManager::cleanup_all_netscope_rules();
+                            let _ =
+                                crate::bandwidth::WindowsQosManager::cleanup_all_netscope_rules();
                             app_handle.exit(0);
                         });
                     }

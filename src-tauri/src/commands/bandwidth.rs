@@ -39,7 +39,8 @@ pub async fn get_bandwidth_config() -> Result<BandwidthConfig, String> {
     let default_profile = BandwidthProfile {
         id: "preset_balanced".to_string(),
         name: "Balanced Mode".to_string(),
-        description: "Standard Windows default networking without artificial rate throttling.".to_string(),
+        description: "Standard Windows default networking without artificial rate throttling."
+            .to_string(),
         is_preset: true,
         preset_type: Some("balanced".to_string()),
         global_download_limit_bps: None,
