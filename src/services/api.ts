@@ -10,6 +10,12 @@ import {
   HistoryRange,
   AppSettings,
 } from '../types/network';
+import {
+  BandwidthConfig,
+  BandwidthLimitRule,
+  BandwidthProfile,
+  BandwidthCapabilities,
+} from '../types/bandwidth';
 
 import { webSimulation, SIMULATED_ADAPTERS } from './webSimulation';
 
@@ -57,13 +63,21 @@ async function handleWebSimulation<T>(cmd: string, args?: Record<string, unknown
       return Promise.resolve(true as unknown as T);
     case 'get_traffic_history':
       return Promise.resolve(
-        webSimulation.getHistory((args?.range as string) || 'today') as unknown as T
+        webSimulation.getHistory(
+          (args?.range as HistoryRange) || 'today',
+          args?.customStart as string | undefined,
+          args?.customEnd as string | undefined,
+          args?.interfaceFilter as string | undefined
+        ) as unknown as T
       );
     case 'export_traffic_history':
       return Promise.resolve(
         webSimulation.exportHistory(
           (args?.format as 'csv' | 'json') || 'csv',
-          (args?.range as string) || 'today'
+          (args?.range as HistoryRange) || 'today',
+          args?.customStart as string | undefined,
+          args?.customEnd as string | undefined,
+          args?.interfaceFilter as string | undefined
         ) as unknown as T
       );
     case 'get_settings':
@@ -84,6 +98,41 @@ async function handleWebSimulation<T>(cmd: string, args?: Record<string, unknown
       return Promise.resolve(true as unknown as T);
     case 'exit_app':
       return Promise.resolve(undefined as unknown as T);
+    case 'get_bandwidth_capabilities':
+      return Promise.resolve(webSimulation.getBandwidthCapabilities() as unknown as T);
+    case 'get_bandwidth_config':
+      return Promise.resolve(webSimulation.getBandwidthConfig() as unknown as T);
+    case 'apply_global_bandwidth_limit':
+      return Promise.resolve(
+        webSimulation.applyGlobalBandwidthLimit(
+          args?.downloadLimitBps as number | undefined,
+          args?.uploadLimitBps as number | undefined,
+          Boolean(args?.downloadEnabled),
+          Boolean(args?.uploadEnabled),
+          args?.adapterAlias as string | undefined
+        ) as unknown as T
+      );
+    case 'apply_app_bandwidth_limit':
+      return Promise.resolve(
+        webSimulation.applyAppBandwidthLimit(args?.rule as BandwidthLimitRule) as unknown as T
+      );
+    case 'remove_bandwidth_limit':
+      return Promise.resolve(
+        webSimulation.removeBandwidthLimit(
+          args?.targetType as string,
+          args?.targetIdentifier as string
+        ) as unknown as T
+      );
+    case 'reset_all_bandwidth_limits':
+      return Promise.resolve(webSimulation.resetAllBandwidthLimits() as unknown as T);
+    case 'save_bandwidth_profile':
+      return Promise.resolve(
+        webSimulation.saveBandwidthProfile(args?.profile as BandwidthProfile) as unknown as T
+      );
+    case 'apply_bandwidth_profile':
+      return Promise.resolve(
+        webSimulation.applyBandwidthProfile(args?.profileId as string) as unknown as T
+      );
     default:
       return Promise.resolve({} as unknown as T);
   }
@@ -170,12 +219,34 @@ export const api = {
     return nativeCommand<SocketConnection[]>('get_active_connections');
   },
 
-  async getHistory(range: HistoryRange = 'today'): Promise<TrafficHistoryRecord[]> {
-    return nativeCommand<TrafficHistoryRecord[]>('get_traffic_history', { range });
+  async getHistory(
+    range: HistoryRange = 'today',
+    customStart?: string,
+    customEnd?: string,
+    interfaceFilter?: string
+  ): Promise<TrafficHistoryRecord[]> {
+    return nativeCommand<TrafficHistoryRecord[]>('get_traffic_history', {
+      range,
+      customStart,
+      customEnd,
+      interfaceFilter,
+    });
   },
 
-  async exportHistory(format: 'csv' | 'json', range: HistoryRange = 'today'): Promise<string> {
-    return nativeCommand<string>('export_traffic_history', { format, range });
+  async exportHistory(
+    format: 'csv' | 'json',
+    range: HistoryRange = 'today',
+    customStart?: string,
+    customEnd?: string,
+    interfaceFilter?: string
+  ): Promise<string> {
+    return nativeCommand<string>('export_traffic_history', {
+      format,
+      range,
+      customStart,
+      customEnd,
+      interfaceFilter,
+    });
   },
 
   async getSettings(): Promise<AppSettings> {
@@ -224,5 +295,73 @@ export const api = {
 
   async exitApp(): Promise<void> {
     await nativeCommand<void>('exit_app');
+  },
+
+  // Bandwidth Control APIs
+  async getBandwidthCapabilities(): Promise<BandwidthCapabilities> {
+    return nativeCommand<BandwidthCapabilities>('get_bandwidth_capabilities');
+  },
+
+  async getBandwidthConfig(): Promise<BandwidthConfig> {
+    return nativeCommand<BandwidthConfig>('get_bandwidth_config');
+  },
+
+  async applyGlobalBandwidthLimit(
+    downloadLimitBps?: number,
+    uploadLimitBps?: number,
+    downloadEnabled = false,
+    uploadEnabled = false,
+    adapterAlias = 'auto'
+  ): Promise<BandwidthLimitRule> {
+    return nativeCommand<BandwidthLimitRule>('apply_global_bandwidth_limit', {
+      downloadLimitBps,
+      uploadLimitBps,
+      downloadEnabled,
+      uploadEnabled,
+      adapterAlias,
+    });
+  },
+
+  async applyAppBandwidthLimit(rule: BandwidthLimitRule): Promise<BandwidthLimitRule> {
+    return nativeCommand<BandwidthLimitRule>('apply_app_bandwidth_limit', {
+      rule,
+      name: rule.name,
+      targetType: rule.targetType,
+      targetIdentifier: rule.targetIdentifier,
+      appPath: rule.appPath,
+      pid: rule.pid,
+      downloadLimitBps: rule.downloadLimitBps,
+      uploadLimitBps: rule.uploadLimitBps,
+      downloadEnabled: rule.downloadEnabled,
+      uploadEnabled: rule.uploadEnabled,
+      priority: rule.priority,
+      isGroupRule: rule.isGroupRule,
+    });
+  },
+
+  async removeBandwidthLimit(targetType: string, targetIdentifier: string): Promise<boolean> {
+    return nativeCommand<boolean>('remove_bandwidth_limit', {
+      targetType,
+      targetIdentifier,
+    });
+  },
+
+  async resetAllBandwidthLimits(): Promise<boolean> {
+    return nativeCommand<boolean>('reset_all_bandwidth_limits');
+  },
+
+  async saveBandwidthProfile(profile: BandwidthProfile): Promise<BandwidthProfile> {
+    return nativeCommand<BandwidthProfile>('save_bandwidth_profile', { profile });
+  },
+
+  async applyBandwidthProfile(profileId: string): Promise<BandwidthConfig> {
+    return nativeCommand<BandwidthConfig>('apply_bandwidth_profile', { profileId });
+  },
+
+  toggleBandwidthPause(paused?: boolean): boolean {
+    if (!isTauri) {
+      return webSimulation.toggleBandwidthPause(paused);
+    }
+    return false;
   },
 };

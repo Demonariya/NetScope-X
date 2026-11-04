@@ -8,6 +8,7 @@ import { ApplicationsTab } from './components/applications/ApplicationsTab';
 import { TrafficTab } from './components/traffic/TrafficTab';
 import { ConnectionsTab } from './components/connections/ConnectionsTab';
 import { HistoryTab } from './components/history/HistoryTab';
+import { BandwidthTab } from './components/bandwidth/BandwidthTab';
 import { SettingsTab } from './components/settings/SettingsTab';
 import { ToastContainer, ToastMessage } from './components/common/Toast';
 import { NotificationQueue, NotificationType } from './utils/notifications';
@@ -22,6 +23,11 @@ import {
   HistoryRange,
   AppSettings,
 } from './types/network';
+import {
+  BandwidthConfig,
+  BandwidthLimitRule,
+  BandwidthProfile,
+} from './types/bandwidth';
 import { api, DEFAULT_SETTINGS, isTauri } from './services/api';
 import { formatTime, formatLatency } from './utils/formatters';
 import { DEFAULT_ACCENT_COLOR, getAccentCssVariables, normalizeHexColor } from './utils/appearance';
@@ -131,6 +137,20 @@ export default function App() {
 
   // Rolling speed chart buffer (bounded in-memory)
   const [speedHistory, setSpeedHistory] = useState<{ time: string; downBps: number; upBps: number }[]>([]);
+  const [bandwidthConfig, setBandwidthConfig] = useState<BandwidthConfig | null>(null);
+
+  // Load Bandwidth Control configuration on mount
+  useEffect(() => {
+    let cancelled = false;
+    api.getBandwidthConfig()
+      .then(cfg => {
+        if (!cancelled) setBandwidthConfig(cfg);
+      })
+      .catch(err => console.warn('Could not load bandwidth config:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const addToast = useCallback((
     title: string,
@@ -809,6 +829,122 @@ export default function App() {
     }
   };
 
+  // Bandwidth Control Handlers
+  const handleApplyGlobalLimit = async (
+    downloadLimitBps?: number,
+    uploadLimitBps?: number,
+    downloadEnabled = false,
+    uploadEnabled = false,
+    adapterAlias = 'auto'
+  ) => {
+    try {
+      await api.applyGlobalBandwidthLimit(
+        downloadLimitBps,
+        uploadLimitBps,
+        downloadEnabled,
+        uploadEnabled,
+        adapterAlias
+      );
+      const updated = await api.getBandwidthConfig();
+      setBandwidthConfig(updated);
+      addToast('Bandwidth Limit Applied', 'Global network throttling configuration updated.', 'success');
+    } catch (error) {
+      addToast('Failed to Apply Limit', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
+  const handleApplyAppLimit = async (rule: BandwidthLimitRule) => {
+    try {
+      await api.applyAppBandwidthLimit(rule);
+      const updated = await api.getBandwidthConfig();
+      setBandwidthConfig(updated);
+      addToast('Application Rule Saved', `Rate limit & priority set for ${rule.name}`, 'success');
+    } catch (error) {
+      addToast('Failed to Apply Rule', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
+  const handleRemoveBandwidthLimit = async (targetType: string, targetIdentifier: string) => {
+    try {
+      await api.removeBandwidthLimit(targetType, targetIdentifier);
+      const updated = await api.getBandwidthConfig();
+      setBandwidthConfig(updated);
+      addToast('Rule Removed', `Bandwidth rule for ${targetIdentifier} removed.`, 'info');
+    } catch (error) {
+      addToast('Failed to Remove Rule', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
+  const handleResetAllBandwidthLimits = async () => {
+    try {
+      await api.resetAllBandwidthLimits();
+      const updated = await api.getBandwidthConfig();
+      setBandwidthConfig(updated);
+      addToast('All Limits Reset', 'Restored unlimited bandwidth and cleared QoS rules.', 'success');
+    } catch (error) {
+      addToast('Failed to Reset Limits', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
+  const handleSaveBandwidthProfile = async (name: string, description?: string) => {
+    if (!bandwidthConfig) return;
+    try {
+      const newProfile: BandwidthProfile = {
+        id: `profile_${Date.now()}`,
+        name,
+        description: description || 'User custom bandwidth profile',
+        isPreset: false,
+        presetType: 'custom',
+        globalDownloadLimitBps: bandwidthConfig.globalRule.downloadLimitBps,
+        globalUploadLimitBps: bandwidthConfig.globalRule.uploadLimitBps,
+        globalDownloadEnabled: bandwidthConfig.globalRule.downloadEnabled,
+        globalUploadEnabled: bandwidthConfig.globalRule.uploadEnabled,
+        adapterAlias: bandwidthConfig.globalRule.adapterAlias || 'auto',
+        defaultPriority: 'Normal',
+        createdAt: Date.now(),
+        appRules: [...bandwidthConfig.appRules],
+      };
+      await api.saveBandwidthProfile(newProfile);
+      const updated = await api.getBandwidthConfig();
+      setBandwidthConfig(updated);
+      addToast('Profile Saved', `Preset "${name}" saved successfully.`, 'success');
+    } catch (error) {
+      addToast('Failed to Save Profile', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
+  const handleApplyBandwidthProfile = async (profileId: string) => {
+    try {
+      const updated = await api.applyBandwidthProfile(profileId);
+      setBandwidthConfig(updated);
+      const matched = updated.profiles.find(p => p.id === profileId);
+      addToast('Profile Activated', `Switched to "${matched?.name || profileId}" profile.`, 'success');
+    } catch (error) {
+      addToast('Failed to Apply Profile', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
+  const handleToggleBandwidthPause = () => {
+    const isPausedNow = api.toggleBandwidthPause();
+    setBandwidthConfig(prev => (prev ? { ...prev, isPaused: isPausedNow } : prev));
+    addToast(
+      isPausedNow ? 'Limits Paused' : 'Limits Resumed',
+      isPausedNow ? 'Traffic limits temporarily bypassed.' : 'Bandwidth caps actively enforced.',
+      'info'
+    );
+  };
+
+  const handleCustomDateFilter = async (startDate: string, endDate: string) => {
+    try {
+      const records = await api.getHistory('custom', undefined, startDate, endDate);
+      setHistory(records);
+      setHistoryRange('custom');
+      addToast('Custom Range Loaded', `${startDate} to ${endDate} (${records.length} records)`, 'info');
+    } catch (error) {
+      addToast('Failed to Load Date Range', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
   const isLightEffective =
     theme === 'light' ||
     (theme === 'system' &&
@@ -817,122 +953,141 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen w-full flex flex-col items-center justify-center overflow-hidden font-sans p-0 select-none transition-colors duration-200 ${
-        isLightEffective ? 'bg-slate-200 text-slate-900' : 'bg-[#070a0f] text-slate-100'
+      className={`h-[100dvh] w-full flex flex-col overflow-hidden font-sans select-none transition-colors duration-200 ${
+        isLightEffective ? 'bg-slate-100 text-slate-900' : 'bg-[#0b0f17] text-slate-100'
       }`}
     >
-      {/* Strict 405 × 720 px, 9:16 Portrait Canvas Frame (Responsive Container) */}
-      <div
-        style={{ width: '100%', maxWidth: '405px', height: '100%', maxHeight: '720px' }}
-        className={`w-full max-w-[405px] h-full max-h-[720px] aspect-[9/16] flex flex-col overflow-hidden relative shadow-2xl rounded-none sm:rounded-2xl mx-auto border transition-colors duration-200 ${
-          isLightEffective
-            ? 'bg-white border-slate-300 text-slate-900 shadow-slate-400/40'
-            : 'bg-[#0b0f17] border-slate-800/80 text-slate-100 shadow-black/60'
-        }`}
-      >
-        {/* Native Windows Custom Title Bar */}
-        <TitleBar
-          isMonitoring={isMonitoring}
-          onToggleMonitoring={handleToggleMonitoring}
-          onHideToTray={handleHideToTray}
-          onMinimize={handleMinimize}
-          onClose={handleClose}
-          currentTheme={theme}
-          onToggleTheme={handleToggleTheme}
-          accentColor={accentColor}
-        />
+      {/* Native Windows Custom Title Bar - Fixed Height */}
+      <TitleBar
+        isMonitoring={isMonitoring}
+        onToggleMonitoring={handleToggleMonitoring}
+        onHideToTray={handleHideToTray}
+        onMinimize={handleMinimize}
+        onClose={handleClose}
+        currentTheme={theme}
+        onToggleTheme={handleToggleTheme}
+        accentColor={accentColor}
+      />
 
-        {/* Viewport Content Area with Vertical Scrolling and Fluid Tab Transitions */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden relative min-h-0 w-full">
+      {/* Main Content Viewport Area with Vertical Scrolling and Responsive Container */}
+      <main className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden relative">
+        <div className="w-full max-w-2xl sm:max-w-3xl lg:max-w-4xl mx-auto min-h-full flex flex-col">
           <motion.div
             key={activeTab}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.14, ease: 'easeOut' }}
-            className="w-full min-h-full"
+            className="w-full flex-1 flex flex-col min-w-0"
           >
-              {activeTab === 'overview' && (
-                <OverviewTab
-                  adapters={adapters}
-                  adapterDiscoveryStatus={adapterDiscoveryStatus}
-                  selectedAdapterId={selectedAdapterId}
-                  onSelectAdapter={handleSelectAdapter}
-                  liveStats={liveStats}
-                  activePingTarget={activePingTarget}
-                  pingResult={pingResult}
-                  onSelectPingTarget={handleSelectPingTarget}
-                  speedHistory={speedHistory}
-                  accentColor={accentColor}
-                  currentTheme={theme}
-                />
-              )}
+            {activeTab === 'overview' && (
+              <OverviewTab
+                adapters={adapters}
+                adapterDiscoveryStatus={adapterDiscoveryStatus}
+                selectedAdapterId={selectedAdapterId}
+                onSelectAdapter={handleSelectAdapter}
+                liveStats={liveStats}
+                activePingTarget={activePingTarget}
+                pingResult={pingResult}
+                onSelectPingTarget={handleSelectPingTarget}
+                speedHistory={speedHistory}
+                accentColor={accentColor}
+                currentTheme={theme}
+              />
+            )}
 
-              {activeTab === 'applications' && (
-                <ApplicationsTab
-                  processes={processes}
-                  onResetStats={handleResetProcessStats}
-                  onToggleBlock={handleToggleBlock}
-                  isMonitoring={isMonitoring}
-                />
-              )}
+            {activeTab === 'applications' && (
+              <ApplicationsTab
+                processes={processes}
+                onResetStats={handleResetProcessStats}
+                onToggleBlock={handleToggleBlock}
+                isMonitoring={isMonitoring}
+                bandwidthConfig={bandwidthConfig ?? undefined}
+                onApplyAppLimit={handleApplyAppLimit}
+                onRemoveAppLimit={handleRemoveBandwidthLimit}
+                onShowToast={(t, m, type) => addToast(t, m, type ?? 'info')}
+                accentColor={accentColor}
+                currentTheme={theme}
+              />
+            )}
 
-              {activeTab === 'traffic' && (
-                <TrafficTab
-                  history={history}
-                  processes={processes}
-                  accentColor={accentColor}
-                  currentTheme={theme}
-                />
-              )}
+            {activeTab === 'bandwidth' && bandwidthConfig && (
+              <BandwidthTab
+                bandwidthConfig={bandwidthConfig}
+                onApplyGlobalLimit={handleApplyGlobalLimit}
+                onApplyAppLimit={handleApplyAppLimit}
+                onRemoveLimit={handleRemoveBandwidthLimit}
+                onResetAllLimits={handleResetAllBandwidthLimits}
+                onSaveProfile={handleSaveBandwidthProfile}
+                onApplyProfile={handleApplyBandwidthProfile}
+                onTogglePause={handleToggleBandwidthPause}
+                adapters={adapters}
+                processes={processes}
+                liveStats={liveStats}
+                onShowToast={(t, m, type) => addToast(t, m, type ?? 'info')}
+                accentColor={accentColor}
+                currentTheme={theme}
+              />
+            )}
 
-              {activeTab === 'connections' && (
-                <ConnectionsTab
-                  connections={connections}
-                  onShowToast={(t, m) => addToast(t, m, 'info')}
-                />
-              )}
+            {activeTab === 'traffic' && (
+              <TrafficTab
+                history={history}
+                processes={processes}
+                accentColor={accentColor}
+                currentTheme={theme}
+              />
+            )}
 
-              {activeTab === 'history' && (
-                <HistoryTab
-                  history={history}
-                  historyRange={historyRange}
-                  onRangeChange={setHistoryRange}
-                  onClearHistory={handleClearHistory}
-                  onResetSession={handleResetSession}
-                  isMonitoring={isMonitoring}
-                  onShowToast={(t, m, type) => addToast(t, m, type ?? 'info')}
-                  accentColor={accentColor}
-                  currentTheme={theme}
-                />
-              )}
+            {activeTab === 'connections' && (
+              <ConnectionsTab
+                connections={connections}
+                onShowToast={(t, m) => addToast(t, m, 'info')}
+                currentTheme={theme}
+              />
+            )}
 
-              {activeTab === 'settings' && settings && (
-                <SettingsTab
-                  settings={settings}
-                  adapters={adapters}
-                  currentTheme={theme}
-                  onThemeChange={handleThemeChange}
-                  accentColor={accentColor}
-                  onAccentColorChange={handleAccentColorChange}
-                  onSaveSettings={handleSaveSettings}
-                  onResetSession={handleResetSession}
-                  onClearHistory={handleClearHistory}
-                  onShowToast={(t, m, type = 'info') => addToast(t, m, type)}
-                />
-              )}
-            </motion.div>
+            {activeTab === 'history' && (
+              <HistoryTab
+                history={history}
+                historyRange={historyRange}
+                onRangeChange={setHistoryRange}
+                onClearHistory={handleClearHistory}
+                onResetSession={handleResetSession}
+                isMonitoring={isMonitoring}
+                onShowToast={(t, m, type) => addToast(t, m, type ?? 'info')}
+                accentColor={accentColor}
+                currentTheme={theme}
+                onCustomDateFilter={handleCustomDateFilter}
+              />
+            )}
+
+            {activeTab === 'settings' && settings && (
+              <SettingsTab
+                settings={settings}
+                adapters={adapters}
+                currentTheme={theme}
+                onThemeChange={handleThemeChange}
+                accentColor={accentColor}
+                onAccentColorChange={handleAccentColorChange}
+                onSaveSettings={handleSaveSettings}
+                onResetSession={handleResetSession}
+                onClearHistory={handleClearHistory}
+                onShowToast={(t, m, type = 'info') => addToast(t, m, type)}
+              />
+            )}
+          </motion.div>
         </div>
+      </main>
 
-        {/* Dedicated 9:16 Portrait Bottom Navigation Bar */}
-        <Navigation
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          accentColor={accentColor}
-        />
+      {/* Bottom Navigation Bar - Fixed Height */}
+      <Navigation
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        accentColor={accentColor}
+      />
 
-        {/* Toast Notification Container with 5-Second Timer */}
-        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-      </div>
+      {/* Toast Notification Container with 5-Second Timer */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

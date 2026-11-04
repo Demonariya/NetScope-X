@@ -6,7 +6,21 @@ import {
   SocketConnection,
   TrafficHistoryRecord,
   AppSettings,
+  HistoryRange,
 } from '../types/network';
+import {
+  BandwidthConfig,
+  BandwidthLimitRule,
+  BandwidthProfile,
+  BandwidthCapabilities,
+  ApplicationPriority,
+} from '../types/bandwidth';
+import {
+  getPresetProfiles,
+  DEFAULT_BANDWIDTH_CAPABILITIES,
+  toBitsPerSecond,
+} from '../utils/bandwidth';
+import { getProcessRealIcon } from '../utils/processIcons';
 
 // Web Simulation Engine for Browser & Cloud Run Preview environments
 // Provides realistic, fully interactive live Windows network telemetry
@@ -16,6 +30,7 @@ const STORAGE_KEYS = {
   BLOCKED_EXES: 'netscope_sim_blocked_exes',
   HISTORY: 'netscope_sim_history',
   SESSION_ACCUMULATOR: 'netscope_sim_session',
+  BANDWIDTH_CONFIG: 'netscope_sim_bandwidth_config',
 };
 
 const memoryStorage = new Map<string, string>();
@@ -145,7 +160,7 @@ class SimulationState {
     }
   }
 
-  getLiveStats(adapterId: string): NetworkStats {
+  getLiveStats(adapterId: string = 'auto'): NetworkStats {
     if (!this.monitoringEnabled) {
       return {
         timestamp: Date.now(),
@@ -166,11 +181,24 @@ class SimulationState {
 
     const baseDown = 3_500_000 + Math.sin(Date.now() / 4000) * 1_500_000;
     const noiseDown = (Math.random() * 0.4 - 0.2) * baseDown;
-    const downBps = Math.max(150_000, Math.round(baseDown + noiseDown));
+    let downBps = Math.max(150_000, Math.round(baseDown + noiseDown));
 
     const baseUp = 850_000 + Math.cos(Date.now() / 5000) * 400_000;
     const noiseUp = (Math.random() * 0.4 - 0.2) * baseUp;
-    const upBps = Math.max(45_000, Math.round(baseUp + noiseUp));
+    let upBps = Math.max(45_000, Math.round(baseUp + noiseUp));
+
+    // Enforce global bandwidth limits if active
+    const bwConfig = this.getBandwidthConfig();
+    if (!bwConfig.isPaused) {
+      if (bwConfig.globalRule.downloadEnabled && bwConfig.globalRule.downloadLimitBps) {
+        const maxDownBytesPerSec = Math.round(bwConfig.globalRule.downloadLimitBps / 8);
+        downBps = Math.min(downBps, maxDownBytesPerSec);
+      }
+      if (bwConfig.globalRule.uploadEnabled && bwConfig.globalRule.uploadLimitBps) {
+        const maxUpBytesPerSec = Math.round(bwConfig.globalRule.uploadLimitBps / 8);
+        upBps = Math.min(upBps, maxUpBytesPerSec);
+      }
+    }
 
     this.sessionDownload += downBps;
     this.sessionUpload += upBps;
@@ -448,6 +476,26 @@ class SimulationState {
       if (isMonitoring && !isBlocked) {
         down = Math.round(def.baseDown * (0.7 + Math.random() * 0.6));
         up = Math.round(def.baseUp * (0.7 + Math.random() * 0.6));
+
+        // Enforce per-application / per-process bandwidth throttling
+        const bwConfig = this.getBandwidthConfig();
+        if (!bwConfig.isPaused) {
+          const rule = bwConfig.appRules.find(
+            r =>
+              (r.targetType === 'application' && r.targetIdentifier.toLowerCase() === def.exeName.toLowerCase()) ||
+              (r.targetType === 'process' && r.pid === def.pid)
+          );
+          if (rule) {
+            if (rule.downloadEnabled && rule.downloadLimitBps && rule.downloadLimitBps > 0) {
+              const maxDownBytes = Math.round(rule.downloadLimitBps / 8);
+              down = Math.min(down, maxDownBytes);
+            }
+            if (rule.uploadEnabled && rule.uploadLimitBps && rule.uploadLimitBps > 0) {
+              const maxUpBytes = Math.round(rule.uploadLimitBps / 8);
+              up = Math.min(up, maxUpBytes);
+            }
+          }
+        }
       }
 
       const connections: SocketConnection[] = def.remoteIps.map((remote, idx) => ({
@@ -474,7 +522,7 @@ class SimulationState {
         friendlyName: def.friendlyName,
         exeName: def.exeName,
         fullPath: def.fullPath,
-        icon: '',
+        icon: getProcessRealIcon(def.exeName),
         downloadBps: down,
         uploadBps: up,
         sessionDownloadBytes: sessionDown,
@@ -516,6 +564,7 @@ class SimulationState {
       if (!safeGetStorage(STORAGE_KEYS.HISTORY)) {
         const initial: TrafficHistoryRecord[] = [];
         const now = new Date();
+        const topApps = ['Google Chrome', 'Discord', 'Spotify', 'Steam', 'System Process'];
         // Generate past 7 days of hourly records
         for (let day = 6; day >= 0; day--) {
           const dayDate = new Date(now.getTime() - day * 86400_000);
@@ -532,6 +581,7 @@ class SimulationState {
             const baseMB = (40 + Math.sin(h / 3) * 30 + Math.random() * 20) * multiplier;
             const downBytes = Math.round(baseMB * 1024 * 1024);
             const upBytes = Math.round((baseMB * 0.25) * 1024 * 1024);
+            const iface = h % 3 === 0 ? 'Ethernet' : 'Wi-Fi 6';
 
             initial.push({
               id: `${dateStr}-${hourStr}`,
@@ -540,7 +590,8 @@ class SimulationState {
               hourStr,
               downloadBytes: downBytes,
               uploadBytes: upBytes,
-              topApp: h % 2 === 0 ? 'Wi-Fi 6' : 'Ethernet',
+              topApp: topApps[h % topApps.length],
+              interfaceName: iface,
             });
           }
         }
@@ -549,31 +600,53 @@ class SimulationState {
     } catch {}
   }
 
-  getHistory(range = 'today'): TrafficHistoryRecord[] {
+  getHistory(
+    range: HistoryRange = 'today',
+    filterOrStart?: string,
+    customEnd?: string,
+    interfaceFilter?: string
+  ): TrafficHistoryRecord[] {
     try {
       const raw = safeGetStorage(STORAGE_KEYS.HISTORY);
       if (raw) {
-        const all: TrafficHistoryRecord[] = JSON.parse(raw);
+        let all: TrafficHistoryRecord[] = JSON.parse(raw);
         const now = new Date();
         const todayStr = now.toISOString().split('T')[0];
 
+        // Determine if 2nd param is date or interfaceFilter
+        const isSecondArgDate = filterOrStart && /^\d{4}-\d{2}-\d{2}/.test(filterOrStart);
+        const effectiveCustomStart = isSecondArgDate ? filterOrStart : undefined;
+        const effectiveCustomEnd = customEnd && /^\d{4}-\d{2}-\d{2}/.test(customEnd) ? customEnd : undefined;
+        const effectiveInterface = interfaceFilter || (!isSecondArgDate ? filterOrStart : undefined);
+
         if (range === 'today') {
-          return all.filter(r => r.dateStr === todayStr);
-        }
-
-        if (range === 'yesterday') {
+          all = all.filter(r => r.dateStr === todayStr);
+        } else if (range === 'yesterday') {
           const yesterdayStr = new Date(now.getTime() - 86400_000).toISOString().split('T')[0];
-          return all.filter(r => r.dateStr === yesterdayStr);
-        }
-
-        if (range === '7d') {
+          all = all.filter(r => r.dateStr === yesterdayStr);
+        } else if (range === '7d') {
           const cutoff = new Date(now.getTime() - 6 * 86400_000).toISOString().split('T')[0];
-          return all.filter(r => r.dateStr >= cutoff);
+          all = all.filter(r => r.dateStr >= cutoff);
+        } else if (range === '30d') {
+          const cutoff = new Date(now.getTime() - 29 * 86400_000).toISOString().split('T')[0];
+          all = all.filter(r => r.dateStr >= cutoff);
+        } else if (range === 'custom') {
+          if (effectiveCustomStart) {
+            all = all.filter(r => r.dateStr >= effectiveCustomStart);
+          }
+          if (effectiveCustomEnd) {
+            all = all.filter(r => r.dateStr <= effectiveCustomEnd);
+          }
         }
 
-        if (range === '30d') {
-          const cutoff = new Date(now.getTime() - 29 * 86400_000).toISOString().split('T')[0];
-          return all.filter(r => r.dateStr >= cutoff);
+        // Apply interface filter
+        if (effectiveInterface && effectiveInterface !== 'all' && effectiveInterface !== 'All Interfaces') {
+          const norm = effectiveInterface.toLowerCase().trim();
+          all = all.filter(
+            r =>
+              (r.interfaceName && r.interfaceName.toLowerCase().includes(norm)) ||
+              (r.topApp && r.topApp.toLowerCase().includes(norm))
+          );
         }
 
         return all;
@@ -591,13 +664,19 @@ class SimulationState {
     }
   }
 
-  exportHistory(format: 'csv' | 'json', range = 'today'): string {
-    const records = this.getHistory(range);
+  exportHistory(
+    format: 'csv' | 'json',
+    range: HistoryRange = 'today',
+    customStart?: string,
+    customEnd?: string,
+    interfaceFilter?: string
+  ): string {
+    const records = this.getHistory(range, customStart, customEnd, interfaceFilter);
     if (format === 'json') {
       return JSON.stringify(records, null, 2);
     }
 
-    const headers = ['ID', 'Timestamp', 'Date', 'Hour', 'DownloadBytes', 'UploadBytes', 'TotalBytes', 'TopApp'];
+    const headers = ['ID', 'Timestamp', 'Date', 'Hour', 'DownloadBytes', 'UploadBytes', 'TotalBytes', 'TopApp', 'Interface'];
     const rows = records.map(r => [
       `"${r.id}"`,
       r.timestamp,
@@ -607,18 +686,209 @@ class SimulationState {
       r.uploadBytes,
       r.downloadBytes + r.uploadBytes,
       `"${(r.topApp || '').replace(/"/g, '""')}"`,
+      `"${(r.interfaceName || 'All Interfaces').replace(/"/g, '""')}"`,
     ].join(','));
 
     return [headers.join(','), ...rows].join('\n');
   }
 
-  getSettings(): AppSettings {
+  // --- Bandwidth Control Simulation Engine ---
+
+  getBandwidthCapabilities(): BandwidthCapabilities {
+    return { ...DEFAULT_BANDWIDTH_CAPABILITIES };
+  }
+
+  getBandwidthConfig(): BandwidthConfig {
     try {
-      const saved = safeGetStorage(STORAGE_KEYS.SETTINGS);
-      if (saved) return JSON.parse(saved);
+      const raw = safeGetStorage(STORAGE_KEYS.BANDWIDTH_CONFIG);
+      if (raw) {
+        return JSON.parse(raw);
+      }
     } catch {}
 
-    return {
+    const presets = getPresetProfiles();
+    const balanced = presets.find(p => p.id === 'preset_balanced') || presets[0];
+
+    const defaultConfig: BandwidthConfig = {
+      activeProfileId: balanced.id,
+      profiles: presets,
+      globalRule: {
+        id: 'global_rule',
+        name: 'Global Limit',
+        targetType: 'global',
+        targetIdentifier: 'global',
+        downloadLimitBps: undefined,
+        uploadLimitBps: undefined,
+        downloadEnabled: false,
+        uploadEnabled: false,
+        priority: 'Normal',
+        adapterAlias: 'auto',
+        uploadEnforcement: 'disabled',
+        downloadEnforcement: 'advisory',
+        isGroupRule: false,
+      },
+      appRules: [
+        {
+          id: 'rule_chrome',
+          name: 'Google Chrome',
+          targetType: 'application',
+          targetIdentifier: 'chrome.exe',
+          appPath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+          downloadLimitBps: toBitsPerSecond(4, 'MB/s'),
+          uploadLimitBps: toBitsPerSecond(1, 'MB/s'),
+          downloadEnabled: true,
+          uploadEnabled: true,
+          priority: 'High',
+          uploadEnforcement: 'enforced',
+          downloadEnforcement: 'advisory',
+          isGroupRule: true,
+        },
+        {
+          id: 'rule_discord',
+          name: 'Discord Voice & Video',
+          targetType: 'application',
+          targetIdentifier: 'Discord.exe',
+          appPath: 'Discord.exe',
+          downloadLimitBps: undefined,
+          uploadLimitBps: toBitsPerSecond(512, 'KB/s'),
+          downloadEnabled: false,
+          uploadEnabled: true,
+          priority: 'Critical',
+          uploadEnforcement: 'enforced',
+          downloadEnforcement: 'advisory',
+          isGroupRule: true,
+        },
+      ],
+      capabilities: DEFAULT_BANDWIDTH_CAPABILITIES,
+      isPaused: false,
+    };
+
+    safeSetStorage(STORAGE_KEYS.BANDWIDTH_CONFIG, JSON.stringify(defaultConfig));
+    return defaultConfig;
+  }
+
+  saveBandwidthConfig(config: BandwidthConfig): void {
+    try {
+      safeSetStorage(STORAGE_KEYS.BANDWIDTH_CONFIG, JSON.stringify(config));
+    } catch {}
+  }
+
+  applyGlobalBandwidthLimit(
+    downloadLimitBps?: number,
+    uploadLimitBps?: number,
+    downloadEnabled = false,
+    uploadEnabled = false,
+    adapterAlias = 'auto'
+  ): BandwidthLimitRule {
+    const config = this.getBandwidthConfig();
+    config.globalRule = {
+      ...config.globalRule,
+      downloadLimitBps,
+      uploadLimitBps,
+      downloadEnabled,
+      uploadEnabled,
+      adapterAlias,
+      uploadEnforcement: uploadEnabled && uploadLimitBps ? 'enforced' : 'disabled',
+      downloadEnforcement: downloadEnabled && downloadLimitBps ? 'advisory' : 'disabled',
+      enforcementMessage: uploadEnabled && uploadLimitBps ? 'Applied via Windows QoS Policy-based Scheduler' : undefined,
+    };
+    this.saveBandwidthConfig(config);
+    return config.globalRule;
+  }
+
+  applyAppBandwidthLimit(rule: BandwidthLimitRule): BandwidthLimitRule {
+    const config = this.getBandwidthConfig();
+    const idx = config.appRules.findIndex(r => r.id === rule.id || (r.targetType === rule.targetType && r.targetIdentifier === rule.targetIdentifier));
+    const updatedRule: BandwidthLimitRule = {
+      ...rule,
+      uploadEnforcement: rule.uploadEnabled && rule.uploadLimitBps ? 'enforced' : 'disabled',
+      downloadEnforcement: rule.downloadEnabled && rule.downloadLimitBps ? 'advisory' : 'disabled',
+      enforcementMessage: rule.uploadEnabled && rule.uploadLimitBps ? 'Enforced by Windows QoS pacer.sys' : undefined,
+    };
+
+    if (idx >= 0) {
+      config.appRules[idx] = updatedRule;
+    } else {
+      config.appRules.push(updatedRule);
+    }
+    this.saveBandwidthConfig(config);
+    return updatedRule;
+  }
+
+  removeBandwidthLimit(targetType: string, targetIdentifier: string): boolean {
+    const config = this.getBandwidthConfig();
+    if (targetType === 'global') {
+      config.globalRule.downloadEnabled = false;
+      config.globalRule.uploadEnabled = false;
+      config.globalRule.downloadLimitBps = undefined;
+      config.globalRule.uploadLimitBps = undefined;
+      config.globalRule.uploadEnforcement = 'disabled';
+      config.globalRule.downloadEnforcement = 'disabled';
+    } else {
+      config.appRules = config.appRules.filter(
+        r => !(r.targetType === targetType && r.targetIdentifier.toLowerCase() === targetIdentifier.toLowerCase())
+      );
+    }
+    this.saveBandwidthConfig(config);
+    return true;
+  }
+
+  resetAllBandwidthLimits(): boolean {
+    const config = this.getBandwidthConfig();
+    config.globalRule.downloadEnabled = false;
+    config.globalRule.uploadEnabled = false;
+    config.globalRule.downloadLimitBps = undefined;
+    config.globalRule.uploadLimitBps = undefined;
+    config.globalRule.uploadEnforcement = 'disabled';
+    config.globalRule.downloadEnforcement = 'disabled';
+    config.appRules = [];
+    config.isPaused = false;
+    this.saveBandwidthConfig(config);
+    return true;
+  }
+
+  saveBandwidthProfile(profile: BandwidthProfile): BandwidthProfile {
+    const config = this.getBandwidthConfig();
+    const idx = config.profiles.findIndex(p => p.id === profile.id);
+    if (idx >= 0) {
+      config.profiles[idx] = profile;
+    } else {
+      config.profiles.push(profile);
+    }
+    config.activeProfileId = profile.id;
+    this.saveBandwidthConfig(config);
+    return profile;
+  }
+
+  applyBandwidthProfile(profileId: string): BandwidthConfig {
+    const config = this.getBandwidthConfig();
+    const profile = config.profiles.find(p => p.id === profileId);
+    if (!profile) return config;
+
+    config.activeProfileId = profile.id;
+    config.globalRule.downloadLimitBps = profile.globalDownloadLimitBps;
+    config.globalRule.uploadLimitBps = profile.globalUploadLimitBps;
+    config.globalRule.downloadEnabled = profile.globalDownloadEnabled;
+    config.globalRule.uploadEnabled = profile.globalUploadEnabled;
+    config.globalRule.adapterAlias = profile.adapterAlias;
+    config.globalRule.uploadEnforcement = profile.globalUploadEnabled && profile.globalUploadLimitBps ? 'enforced' : 'disabled';
+    config.globalRule.downloadEnforcement = profile.globalDownloadEnabled && profile.globalDownloadLimitBps ? 'advisory' : 'disabled';
+    config.appRules = [...profile.appRules];
+    config.isPaused = false;
+
+    this.saveBandwidthConfig(config);
+    return config;
+  }
+
+  toggleBandwidthPause(paused?: boolean): boolean {
+    const config = this.getBandwidthConfig();
+    config.isPaused = paused !== undefined ? paused : !config.isPaused;
+    this.saveBandwidthConfig(config);
+    return config.isPaused;
+  }
+
+  getSettings(): AppSettings {
+    const defaults: AppSettings = {
       monitoring: {
         enabled: true,
         perAppEnabled: true,
@@ -641,6 +911,24 @@ class SimulationState {
         accentColor: '#38bdf8',
       },
     };
+
+    try {
+      const saved = safeGetStorage(STORAGE_KEYS.SETTINGS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...defaults,
+          ...parsed,
+          monitoring: { ...defaults.monitoring, ...(parsed.monitoring || {}) },
+          diagnostics: { ...defaults.diagnostics, ...(parsed.diagnostics || {}) },
+          startup: { ...defaults.startup, ...(parsed.startup || {}) },
+          storage: { ...defaults.storage, ...(parsed.storage || {}) },
+          appearance: { ...defaults.appearance, ...(parsed.appearance || {}) },
+        };
+      }
+    } catch {}
+
+    return defaults;
   }
 
   saveSettings(settings: AppSettings): boolean {

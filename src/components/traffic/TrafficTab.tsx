@@ -141,11 +141,13 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
   return (
     <div className="space-y-3 p-3 w-full pb-16">
       {/* 1. Protocol Distribution Card */}
-      <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 shadow-sm">
+      <div className={`rounded-xl border p-3 shadow-sm transition-colors ${
+        isLight ? 'bg-white/90 border-slate-200 shadow-xs' : 'bg-slate-900/80 border-slate-800/80'
+      }`}>
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-2">
             <PieIcon className="w-4 h-4 text-sky-400 shrink-0" />
-            <h3 className="text-xs font-semibold text-slate-100">
+            <h3 className={`text-xs font-semibold ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
               Active Socket Protocol Mix
             </h3>
           </div>
@@ -157,12 +159,12 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
         <div className="space-y-2.5">
           <div>
             <div className="flex justify-between text-xs mb-1">
-              <span className="text-slate-300 font-medium">TCP connections</span>
+              <span className={`font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>TCP connections</span>
               <span className="font-mono text-sky-400 font-semibold">
                 {totalConns > 0 ? `${tcpPercent}% (${tcpConns})` : '--'}
               </span>
             </div>
-            <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+            <div className={`w-full h-2 rounded-full overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`}>
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${tcpPercent}%` }}
@@ -174,12 +176,12 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
 
           <div>
             <div className="flex justify-between text-xs mb-1">
-              <span className="text-slate-300 font-medium">UDP endpoints</span>
+              <span className={`font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>UDP endpoints</span>
               <span className="font-mono text-teal-400 font-semibold">
                 {totalConns > 0 ? `${udpPercent}% (${udpConns})` : '--'}
               </span>
             </div>
-            <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+            <div className={`w-full h-2 rounded-full overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`}>
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${udpPercent}%` }}
@@ -189,9 +191,11 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
+          <div className={`pt-2 border-t flex items-center justify-between text-[11px] ${
+            isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800/60 text-slate-400'
+          }`}>
             <span>Observed Socket Endpoints:</span>
-            <span className="font-mono text-slate-200 font-medium">
+            <span className={`font-mono font-medium ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
               {tcpConns} TCP · {udpConns} UDP
             </span>
           </div>
@@ -200,7 +204,9 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
 
       {/* 2. Collection & Attribution Status Banner */}
       <div
-        className={`rounded-xl bg-slate-900/80 border p-3 space-y-2 ${
+        className={`rounded-xl border p-3 space-y-2 transition-colors ${
+          isLight ? 'bg-white/90 shadow-xs' : 'bg-slate-900/80'
+        } ${
           hasProcessAttribution ? 'border-emerald-500/25' : 'border-amber-500/25'
         }`}
       >
@@ -211,7 +217,7 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
                 hasProcessAttribution ? 'text-emerald-400' : 'text-amber-400'
               }`}
             />
-            <h3 className="text-xs font-semibold text-slate-100">
+            <h3 className={`text-xs font-semibold ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
               Per-Application Traffic Telemetry
             </h3>
           </div>
@@ -233,11 +239,13 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
       </div>
 
       {/* 3. Hourly Transferred Volume Chart */}
-      <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 shadow-sm">
+      <div className={`rounded-xl border p-3 shadow-sm transition-colors ${
+        isLight ? 'bg-white/90 border-slate-200 shadow-xs' : 'bg-slate-900/80 border-slate-800/80'
+      }`}>
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-sky-400 shrink-0" />
-            <h3 className="text-xs font-semibold text-slate-100">
+            <h3 className={`text-xs font-semibold ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
               Hourly Transferred Volume (Megabytes)
             </h3>
           </div>
@@ -249,13 +257,13 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
         {hourlyData.length === 0 ? (
           <div className="h-44 flex flex-col items-center justify-center text-center text-[11px] text-slate-500 px-5 gap-1">
             <Activity className="w-6 h-6 text-slate-600 mb-1" />
-            <p className="font-medium text-slate-400">No hourly transfer samples recorded yet.</p>
-            <p className="text-[10px] text-slate-600">
+            <p className={`font-medium ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>No hourly transfer samples recorded yet.</p>
+            <p className="text-[10px] text-slate-500">
               Hourly buckets will accumulate automatically as network traffic is measured.
             </p>
           </div>
         ) : (
-          <div className="h-44 w-full pt-1">
+          <div className="h-44 w-full min-w-0 pt-1">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={hourlyData} margin={{ top: 5, right: 5, left: -22, bottom: 0 }}>
                 <XAxis
@@ -326,11 +334,13 @@ export const TrafficTab: React.FC<TrafficTabProps> = ({
       </div>
 
       {/* 4. Top Bandwidth Consumers Ranking */}
-      <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 shadow-sm">
+      <div className={`rounded-xl border p-3 shadow-sm transition-colors ${
+        isLight ? 'bg-white/90 border-slate-200 shadow-xs' : 'bg-slate-900/80 border-slate-800/80'
+      }`}>
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-sky-400 shrink-0" />
-            <h3 className="text-xs font-semibold text-slate-100">Top Bandwidth Consumers</h3>
+            <h3 className={`text-xs font-semibold ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>Top Bandwidth Consumers</h3>
           </div>
           <span className="text-[10px] text-slate-400 font-mono">
             Ranked by session volume

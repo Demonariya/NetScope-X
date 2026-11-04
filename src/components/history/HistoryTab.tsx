@@ -14,6 +14,9 @@ import {
   Search,
   Filter,
   CheckCircle2,
+  CalendarDays,
+  X,
+  ChevronDown,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -41,6 +44,7 @@ interface HistoryTabProps {
   onShowToast: (title: string, message?: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
   accentColor?: string;
   currentTheme?: 'dark' | 'light' | 'system';
+  onCustomDateFilter?: (startDate: string, endDate: string) => void;
 }
 
 type ViewAggregation = 'auto' | 'hourly' | 'daily';
@@ -55,6 +59,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
   onShowToast,
   accentColor = '#38bdf8',
   currentTheme = 'dark',
+  onCustomDateFilter,
 }) => {
   const isLight =
     currentTheme === 'light' ||
@@ -63,26 +68,77 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
       !window.matchMedia('(prefers-color-scheme: dark)').matches);
 
   const [searchFilter, setSearchFilter] = useState('');
+  const [interfaceFilter, setInterfaceFilter] = useState<string>('all');
   const [viewMode, setViewMode] = useState<ViewAggregation>('auto');
   const [chartType, setChartType] = useState<'area' | 'bar'>('area');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showCustomDateModal, setShowCustomDateModal] = useState(false);
+
+  // Custom Date Range State
+  const [customStartDate, setCustomStartDate] = useState<string>(() => {
+    const d = new Date(Date.now() - 7 * 86400_000);
+    return d.toISOString().split('T')[0];
+  });
+  const [customEndDate, setCustomEndDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+
   const [sortField, setSortField] = useState<'time' | 'down' | 'up' | 'total'>('time');
   const [sortAsc, setSortAsc] = useState(false);
 
-  // Filter history records by search query
-  const filteredHistory = useMemo(() => {
-    if (!searchFilter.trim()) return history;
-    const query = searchFilter.toLowerCase().trim();
-    return history.filter(
-      item =>
-        item.dateStr.toLowerCase().includes(query) ||
-        item.hourStr.toLowerCase().includes(query) ||
-        (item.topApp && item.topApp.toLowerCase().includes(query))
-    );
-  }, [history, searchFilter]);
+  // Available interfaces extracted from actual records
+  const availableInterfaces = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of history) {
+      if (item.interfaceName) set.add(item.interfaceName);
+    }
+    if (set.size === 0) {
+      set.add('Wi-Fi 6');
+      set.add('Ethernet');
+    }
+    return Array.from(set);
+  }, [history]);
 
-  // Aggregate totals
+  // Filter history records by search query, date range, and interface filter
+  const filteredHistory = useMemo(() => {
+    let list = history;
+
+    // Interface Filter
+    if (interfaceFilter !== 'all') {
+      list = list.filter(
+        item =>
+          item.interfaceName === interfaceFilter ||
+          (item.topApp && item.topApp.toLowerCase().includes(interfaceFilter.toLowerCase()))
+      );
+    }
+
+    // Custom Date Range Filter
+    if (historyRange === 'custom') {
+      if (customStartDate) {
+        list = list.filter(item => item.dateStr >= customStartDate);
+      }
+      if (customEndDate) {
+        list = list.filter(item => item.dateStr <= customEndDate);
+      }
+    }
+
+    // Search query filter
+    if (searchFilter.trim()) {
+      const q = searchFilter.toLowerCase().trim();
+      list = list.filter(
+        item =>
+          item.dateStr.toLowerCase().includes(q) ||
+          item.hourStr.toLowerCase().includes(q) ||
+          (item.topApp && item.topApp.toLowerCase().includes(q)) ||
+          (item.interfaceName && item.interfaceName.toLowerCase().includes(q))
+      );
+    }
+
+    return list;
+  }, [history, interfaceFilter, historyRange, customStartDate, customEndDate, searchFilter]);
+
+  // Aggregate totals from filtered records (Guaranteed exact synchronization with charts and table)
   const totalDownload = useMemo(
     () => filteredHistory.reduce((sum, item) => sum + item.downloadBytes, 0),
     [filteredHistory]
@@ -96,14 +152,21 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
   const uploadColor = useMemo(() => getContrastingUploadColor(accentColor), [accentColor]);
 
   // Determine whether to aggregate by day or display hourly intervals
-  const isMultiDay = historyRange === '7d' || historyRange === '30d' || historyRange === 'all';
+  const isMultiDay =
+    historyRange === '7d' ||
+    historyRange === '30d' ||
+    historyRange === 'all' ||
+    historyRange === 'custom';
+
   const effectiveAggregation: 'hourly' | 'daily' =
     viewMode === 'auto'
-      ? (historyRange === 'today' || historyRange === 'yesterday' ? 'hourly' : 'daily')
+      ? historyRange === 'today' || historyRange === 'yesterday'
+        ? 'hourly'
+        : 'daily'
       : viewMode;
 
   // Process data for charts with strict unique keys and unambiguous timestamps
-  const chartData = useMemo(() => {
+  const rawChartPoints = useMemo(() => {
     if (effectiveAggregation === 'daily') {
       // Group by dateStr
       const dayMap = new Map<
@@ -151,34 +214,60 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
             downloadBytes: day.downloadBytes,
             uploadBytes: day.uploadBytes,
             totalBytes,
-            downMB: Math.round((day.downloadBytes / (1024 * 1024)) * 10) / 10,
-            upMB: Math.round((day.uploadBytes / (1024 * 1024)) * 10) / 10,
-            totalMB: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
             topApp: Array.from(day.topApps).filter(Boolean).join(', ') || 'Network Adapter',
           };
         });
     }
 
-    // Hourly intervals: ensure unique keys even across midnight or multi-day
-    return filteredHistory.map(item => {
-      // Display label: if multi-day, prepend "MM/DD "; if today, just "HH:00"
-      const label = isMultiDay ? `${item.dateStr.slice(5)} ${item.hourStr}` : item.hourStr;
-      const totalBytes = item.downloadBytes + item.uploadBytes;
+    // Hourly intervals: ensure unique keys and clean non-repeating labels
+    return [...filteredHistory]
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .map(item => {
+        // Display label: if multi-day, "MM/DD HH:00"; if single day, "HH:00"
+        const label = isMultiDay ? `${item.dateStr.slice(5)} ${item.hourStr}` : item.hourStr;
+        const totalBytes = item.downloadBytes + item.uploadBytes;
 
-      return {
-        key: `${item.dateStr}T${item.hourStr}_${item.id}`,
-        label,
-        fullInterval: `${item.dateStr} ${item.hourStr} - ${item.hourStr.slice(0, 2)}:59`,
-        downloadBytes: item.downloadBytes,
-        uploadBytes: item.uploadBytes,
-        totalBytes,
-        downMB: Math.round((item.downloadBytes / (1024 * 1024)) * 10) / 10,
-        upMB: Math.round((item.uploadBytes / (1024 * 1024)) * 10) / 10,
-        totalMB: Math.round((totalBytes / (1024 * 1024)) * 10) / 10,
-        topApp: item.topApp || 'Network Adapter',
-      };
-    });
+        return {
+          key: `${item.dateStr}T${item.hourStr}_${item.id}`,
+          label,
+          fullInterval: `${item.dateStr} ${item.hourStr} - ${item.hourStr.slice(0, 2)}:59`,
+          downloadBytes: item.downloadBytes,
+          uploadBytes: item.uploadBytes,
+          totalBytes,
+          topApp: item.topApp || 'Network Adapter',
+        };
+      });
   }, [filteredHistory, effectiveAggregation, isMultiDay]);
+
+  // FIX CHART-SCALE MISMATCH (Screenshot A Problem):
+  // Dynamically compute the optimal scale unit (KB, MB, or GB) based on the actual telemetry maximum,
+  // guaranteeing the Y-axis scale perfectly corresponds to the tooltip values.
+  const { chartUnit, unitDivisor, chartData } = useMemo(() => {
+    const maxVal = Math.max(
+      ...rawChartPoints.map(p => Math.max(p.downloadBytes, p.uploadBytes)),
+      0
+    );
+
+    let unit = 'MB';
+    let divisor = 1024 * 1024;
+
+    if (maxVal < 1024 * 1024 && maxVal > 0) {
+      unit = 'KB';
+      divisor = 1024;
+    } else if (maxVal >= 1024 * 1024 * 1024) {
+      unit = 'GB';
+      divisor = 1024 * 1024 * 1024;
+    }
+
+    const scaled = rawChartPoints.map(p => ({
+      ...p,
+      downScaled: Math.round((p.downloadBytes / divisor) * 10) / 10,
+      upScaled: Math.round((p.uploadBytes / divisor) * 10) / 10,
+      totalScaled: Math.round((p.totalBytes / divisor) * 10) / 10,
+    }));
+
+    return { chartUnit: unit, unitDivisor: divisor, chartData: scaled };
+  }, [rawChartPoints]);
 
   // Table rows sorted
   const sortedTableRows = useMemo(() => {
@@ -196,7 +285,13 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
 
   const handleExport = async (format: 'csv' | 'json') => {
     try {
-      const content = await api.exportHistory(format, historyRange);
+      const content = await api.exportHistory(
+        format,
+        historyRange,
+        historyRange === 'custom' ? customStartDate : undefined,
+        historyRange === 'custom' ? customEndDate : undefined,
+        interfaceFilter !== 'all' ? interfaceFilter : undefined
+      );
       const filename = `netscope_traffic_${historyRange}_${new Date()
         .toISOString()
         .replace(/[:.]/g, '-')}${format === 'csv' ? '.csv' : '.json'}`;
@@ -237,15 +332,29 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
     setShowResetConfirm(false);
   };
 
+  const handleApplyCustomDates = (e: React.FormEvent) => {
+    e.preventDefault();
+    onRangeChange('custom');
+    if (onCustomDateFilter) {
+      onCustomDateFilter(customStartDate, customEndDate);
+    }
+    setShowCustomDateModal(false);
+    onShowToast(
+      'Custom Range Applied',
+      `Filtering traffic from ${customStartDate} to ${customEndDate}.`,
+      'info'
+    );
+  };
+
   return (
     <div className="space-y-3 p-3 w-full pb-16">
-      {/* 1. Header Strip with Status Badge, Exports, and Discretionary Actions */}
+      {/* 1. Header Strip with Actions, Exports, & Retention Status */}
       <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3 shadow-sm space-y-2.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <HistoryIcon className="w-4 h-4 text-sky-400 shrink-0" />
             <h2 className="text-xs font-semibold text-slate-100 truncate">
-              Persistent History
+              Network Traffic History
             </h2>
             <span
               className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium border shrink-0 ${
@@ -259,81 +368,51 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   isMonitoring ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
                 }`}
               />
-              <span>{isMonitoring ? 'Recording' : 'Paused'}</span>
+              {isMonitoring ? 'Logging Active' : 'Logging Paused'}
             </span>
           </div>
 
-          {/* Action Buttons: Export CSV, Export JSON, Reset Session, Purge DB */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <motion.button
-              whileTap={{ scale: 0.92 }}
-              onClick={() => {
-                void handleExport('csv');
-              }}
-              title="Export displayed history to CSV spreadsheet"
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded transition-colors cursor-pointer"
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => handleExport('csv')}
+              title="Export filtered records to CSV"
+              className="p-1.5 rounded bg-slate-950 border border-slate-800 text-slate-400 hover:text-emerald-400 transition-colors cursor-pointer"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-              <span>CSV</span>
-            </motion.button>
-
-            <motion.button
-              whileTap={{ scale: 0.92 }}
-              onClick={() => {
-                void handleExport('json');
-              }}
-              title="Export structured history to JSON"
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded transition-colors cursor-pointer"
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => handleExport('json')}
+              title="Export filtered records to JSON"
+              className="p-1.5 rounded bg-slate-950 border border-slate-800 text-slate-400 hover:text-sky-400 transition-colors cursor-pointer"
             >
-              <FileJson className="w-3.5 h-3.5 text-sky-400" />
-              <span>JSON</span>
-            </motion.button>
-
-            {onResetSession && (
-              <motion.button
-                whileTap={{ scale: 0.92 }}
-                onClick={() => setShowResetConfirm(true)}
-                title="Reset live session throughput counters (keeps SQLite history)"
-                className="p-1 rounded bg-slate-800 hover:bg-sky-500/20 text-slate-400 hover:text-sky-300 transition-colors cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-              </motion.button>
-            )}
-
-            <motion.button
-              whileTap={{ scale: 0.92 }}
+              <FileJson className="w-3.5 h-3.5" />
+            </button>
+            <button
               onClick={() => setShowClearConfirm(true)}
-              className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
-              title="Purge all stored SQLite history records"
+              title="Purge historical records from database"
+              className="p-1.5 rounded bg-slate-950 border border-slate-800 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
-            </motion.button>
+            </button>
           </div>
         </div>
 
-        {/* Date Range Selector & View Resolution Controls with Animated Pills */}
-        <div className="flex items-center justify-between gap-2 flex-wrap pt-0.5">
-          {/* Range Pills */}
-          <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded border border-slate-800 text-[11px] overflow-x-auto no-scrollbar relative">
-            <Calendar className="w-3 h-3 text-slate-500 ml-1.5 mr-0.5 shrink-0" />
-            {(['today', 'yesterday', '7d', '30d', 'all'] as const).map(range => (
+        {/* Range Selector Bar with Custom Date Range */}
+        <div className="flex items-center justify-between gap-1 pt-1 flex-wrap">
+          <div className="flex items-center gap-1 text-[11px] overflow-x-auto pb-1 scrollbar-none flex-1">
+            {(['today', 'yesterday', '7d', '30d', 'all'] as HistoryRange[]).map(range => (
               <motion.button
                 key={range}
                 onClick={() => onRangeChange(range)}
                 whileTap={{ scale: 0.94 }}
-                className={`relative px-2 py-0.5 rounded capitalize whitespace-nowrap transition-colors cursor-pointer ${
+                className={`h-6 px-2 text-[11px] inline-flex items-center justify-center rounded border transition-colors shrink-0 cursor-pointer leading-none ${
                   historyRange === range
-                    ? 'text-sky-300 font-semibold shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'border-sky-500/50 text-sky-400 font-semibold bg-sky-500/10'
+                    : isLight
+                    ? 'border-slate-300 bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                    : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {historyRange === range && (
-                  <motion.div
-                    layoutId="historyRangePill"
-                    className="absolute inset-0 bg-slate-800 rounded -z-10"
-                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                  />
-                )}
                 {range === 'today'
                   ? 'Today'
                   : range === 'yesterday'
@@ -345,74 +424,192 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   : 'All Time'}
               </motion.button>
             ))}
+
+            {/* Custom Range Button */}
+            <motion.button
+              onClick={() => setShowCustomDateModal(true)}
+              whileTap={{ scale: 0.94 }}
+              title={
+                historyRange === 'custom' && customStartDate && customEndDate
+                  ? `Custom Range: ${customStartDate} to ${customEndDate}`
+                  : 'Filter by custom date range'
+              }
+              className={`h-6 px-2 text-[11px] inline-flex items-center justify-center gap-1 rounded border transition-colors shrink-0 cursor-pointer leading-none ${
+                historyRange === 'custom'
+                  ? 'border-sky-500/50 text-sky-400 font-semibold bg-sky-500/10 shadow-xs'
+                  : isLight
+                  ? 'border-slate-300 bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                  : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <CalendarDays className="w-3 h-3 shrink-0" />
+              <span>Custom</span>
+              {historyRange === 'custom' && (
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
+              )}
+            </motion.button>
           </div>
 
           {/* Granularity & Chart Mode Toggle */}
           <div className="flex items-center gap-1 text-[10px]">
             {isMultiDay && (
               <div className="flex items-center gap-0.5 bg-slate-950 p-0.5 rounded border border-slate-800 relative">
-                <motion.button
+                <button
                   onClick={() => setViewMode('daily')}
-                  whileTap={{ scale: 0.94 }}
-                  className={`relative px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                  className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
                     effectiveAggregation === 'daily'
-                      ? 'text-sky-300 font-medium'
+                      ? 'bg-slate-800 text-sky-300 font-medium'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  {effectiveAggregation === 'daily' && (
-                    <motion.div
-                      layoutId="historyAggregationPill"
-                      className="absolute inset-0 bg-slate-800 rounded -z-10"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
                   Daily
-                </motion.button>
-                <motion.button
+                </button>
+                <button
                   onClick={() => setViewMode('hourly')}
-                  whileTap={{ scale: 0.94 }}
-                  className={`relative px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
+                  className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
                     effectiveAggregation === 'hourly'
-                      ? 'text-sky-300 font-medium'
+                      ? 'bg-slate-800 text-sky-300 font-medium'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  {effectiveAggregation === 'hourly' && (
-                    <motion.div
-                      layoutId="historyAggregationPill"
-                      className="absolute inset-0 bg-slate-800 rounded -z-10"
-                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                    />
-                  )}
                   Hourly
-                </motion.button>
+                </button>
               </div>
             )}
 
-            <motion.button
-              whileTap={{ scale: 0.93 }}
+            <button
               onClick={() => setChartType(chartType === 'area' ? 'bar' : 'area')}
               title={chartType === 'area' ? 'Switch to Bar chart' : 'Switch to Area chart'}
               className="px-2 py-1 rounded bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
             >
               {chartType === 'area' ? 'Area' : 'Bars'}
-            </motion.button>
+            </button>
           </div>
         </div>
 
-        {/* Search & Filter Bar */}
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
-          <input
-            type="text"
-            placeholder="Filter by interface or date (e.g. 2026-10 or Wi-Fi)..."
-            value={searchFilter}
-            onChange={e => setSearchFilter(e.target.value)}
-            className="w-full pl-7 pr-3 py-1 bg-slate-950 border border-slate-800 rounded text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-sky-500"
-          />
+        {historyRange === 'custom' && customStartDate && customEndDate && (
+          <div className={`flex items-center justify-between text-[10px] pt-1.5 border-t ${
+            isLight ? 'border-slate-200 text-slate-500' : 'border-slate-800/60 text-slate-400'
+          }`}>
+            <span className="flex items-center gap-1.5 text-sky-400 font-mono">
+              <CalendarDays className="w-3 h-3 shrink-0" />
+              <span>Active Range: {customStartDate} to {customEndDate}</span>
+            </span>
+            <button
+              onClick={() => onRangeChange('today')}
+              className="text-[10px] text-slate-400 hover:text-sky-400 underline cursor-pointer"
+            >
+              Reset to Today
+            </button>
+          </div>
+        )}
+
+        {/* Interface Filter & Search Row */}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          {/* Interface Filter Selector */}
+          <div className="relative">
+            <select
+              value={interfaceFilter}
+              onChange={e => setInterfaceFilter(e.target.value)}
+              className="w-full text-xs bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-slate-300 focus:outline-none focus:border-sky-500"
+            >
+              <option value="all">All Interfaces</option>
+              {availableInterfaces.map(iface => (
+                <option key={iface} value={iface}>
+                  {iface}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Search Filter */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
+            <input
+              type="text"
+              placeholder="Search history..."
+              value={searchFilter}
+              onChange={e => setSearchFilter(e.target.value)}
+              className="w-full pl-7 pr-3 py-1 bg-slate-950 border border-slate-800 rounded text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-sky-500"
+            />
+          </div>
         </div>
       </div>
+
+      {/* Modal: Custom Date Range Picker */}
+      <AnimatePresence>
+        {showCustomDateModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs"
+          >
+            <form
+              onSubmit={handleApplyCustomDates}
+              className="w-full max-w-xs rounded-xl bg-slate-900 border border-slate-700 p-3.5 shadow-2xl space-y-3"
+            >
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <h3 className="font-semibold text-xs text-slate-100 flex items-center gap-1.5">
+                  <CalendarDays className="w-4 h-4 text-sky-400" />
+                  <span>Select Custom Date Range</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomDateModal(false)}
+                  className="p-1 text-slate-400 hover:text-slate-200"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <div>
+                  <label className="block text-[10px] uppercase text-slate-400 font-sans mb-1">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={customStartDate}
+                    onChange={e => setCustomStartDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] uppercase text-slate-400 font-sans mb-1">
+                    End Date
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={customEndDate}
+                    onChange={e => setCustomEndDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowCustomDateModal(false)}
+                  className="px-2.5 py-1 rounded bg-slate-800 text-slate-300 text-xs hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-3 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium"
+                >
+                  Apply Filter
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Confirmation Dialog: Clear SQLite Database Records */}
       {showClearConfirm && (
@@ -422,8 +619,8 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
             <span>Purge all stored SQLite traffic records?</span>
           </div>
           <p className="text-[11px] text-slate-400 leading-relaxed">
-            This permanently deletes historical hourly database records. Live adapter counters and
-            session totals will remain intact.
+            This permanently deletes historical database records. Live adapter counters and session
+            totals will remain intact.
           </p>
           <div className="flex items-center gap-2 justify-end pt-1">
             <button
@@ -442,35 +639,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         </div>
       )}
 
-      {/* Confirmation Dialog: Reset Live Session Counters */}
-      {showResetConfirm && (
-        <div className="rounded-xl border border-sky-500/40 bg-sky-950/20 p-3 flex flex-col gap-2 text-xs">
-          <div className="flex items-center gap-2 text-sky-300 font-medium">
-            <RotateCcw className="w-4 h-4 shrink-0 text-sky-400" />
-            <span>Reset current session traffic counters?</span>
-          </div>
-          <p className="text-[11px] text-slate-400 leading-relaxed">
-            This zeros out live session counters across active adapters. Stored historical database
-            records are preserved.
-          </p>
-          <div className="flex items-center gap-2 justify-end pt-1">
-            <button
-              onClick={() => setShowResetConfirm(false)}
-              className="px-2.5 py-1 rounded bg-slate-800 text-slate-300 hover:bg-slate-700"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleConfirmResetSession}
-              className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-medium"
-            >
-              Confirm Reset
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 2. Aggregated Summary Cards */}
+      {/* 2. Aggregated Summary Cards (Exact match with chart & table) */}
       <div className="grid grid-cols-3 gap-2">
         <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-2.5 min-w-0">
           <div className="flex items-center justify-between text-[9px] text-slate-400 uppercase tracking-wider font-sans mb-1">
@@ -512,11 +681,11 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         </div>
       </div>
 
-      {/* 3. Usage Timeline Chart with Strictly Non-Colliding Keys & Tooltip Fix */}
+      {/* 3. Usage Timeline Chart with Dynamic Adaptive Scale & Accurate Units */}
       <div className="rounded-xl bg-slate-900/80 border border-slate-800/80 p-3">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-semibold text-slate-100">
-            Usage Timeline ({effectiveAggregation === 'daily' ? 'Daily Aggregated' : 'Hourly Breakdown'})
+            Usage Timeline ({effectiveAggregation === 'daily' ? 'Daily' : 'Hourly'} in {chartUnit})
           </h3>
           <span className="text-[10px] text-slate-400 font-mono">
             {chartData.length} data points
@@ -532,12 +701,12 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
             </p>
           </div>
         ) : (
-          <div className="h-44 w-full">
+          <div className="h-44 w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               {chartType === 'area' ? (
                 <AreaChart
                   data={chartData}
-                  margin={{ top: 5, right: 5, left: -22, bottom: 0 }}
+                  margin={{ top: 5, right: 8, left: -18, bottom: 0 }}
                 >
                   <defs>
                     <linearGradient id="histDownGrad" x1="0" y1="0" x2="0" y2="1">
@@ -560,7 +729,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                     stroke={isLight ? '#94a3b8' : '#475569'}
                     fontSize={9}
                     tickLine={false}
-                    tickFormatter={val => `${val}M`}
+                    tickFormatter={val => `${val} ${chartUnit}`}
                   />
                   <Tooltip
                     content={({ active, payload }) => {
@@ -568,7 +737,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                       const data = payload[0].payload;
                       return (
                         <div
-                          className={`p-2 rounded-lg border text-xs shadow-xl backdrop-blur-md ${
+                          className={`p-2.5 rounded-lg border text-xs shadow-xl backdrop-blur-md ${
                             isLight
                               ? 'bg-white/95 border-slate-300 text-slate-900'
                               : 'bg-slate-950/95 border-slate-700 text-slate-100'
@@ -600,7 +769,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   />
                   <Area
                     type="monotone"
-                    dataKey="downMB"
+                    dataKey="downScaled"
                     stroke={accentColor}
                     strokeWidth={2}
                     fillOpacity={1}
@@ -609,7 +778,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   />
                   <Area
                     type="monotone"
-                    dataKey="upMB"
+                    dataKey="upScaled"
                     stroke={uploadColor}
                     strokeWidth={2}
                     fillOpacity={1}
@@ -620,7 +789,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
               ) : (
                 <BarChart
                   data={chartData}
-                  margin={{ top: 5, right: 5, left: -22, bottom: 0 }}
+                  margin={{ top: 5, right: 8, left: -18, bottom: 0 }}
                 >
                   <XAxis
                     dataKey="label"
@@ -633,7 +802,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                     stroke={isLight ? '#94a3b8' : '#475569'}
                     fontSize={9}
                     tickLine={false}
-                    tickFormatter={val => `${val}M`}
+                    tickFormatter={val => `${val} ${chartUnit}`}
                   />
                   <Tooltip
                     content={({ active, payload }) => {
@@ -641,7 +810,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                       const data = payload[0].payload;
                       return (
                         <div
-                          className={`p-2 rounded-lg border text-xs shadow-xl backdrop-blur-md ${
+                          className={`p-2.5 rounded-lg border text-xs shadow-xl backdrop-blur-md ${
                             isLight
                               ? 'bg-white/95 border-slate-300 text-slate-900'
                               : 'bg-slate-950/95 border-slate-700 text-slate-100'
@@ -672,13 +841,13 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                     }}
                   />
                   <Bar
-                    dataKey="downMB"
+                    dataKey="downScaled"
                     fill={accentColor}
                     radius={[3, 3, 0, 0]}
                     name="Download"
                   />
                   <Bar
-                    dataKey="upMB"
+                    dataKey="upScaled"
                     fill={uploadColor}
                     radius={[3, 3, 0, 0]}
                     name="Upload"
@@ -690,24 +859,22 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         )}
       </div>
 
-      {/* 4. Detailed History Table with Column Sorting and Search Results */}
+      {/* 4. Detailed History Table with Column Sorting and Filtered Records */}
       <div className="rounded-xl border border-slate-800/80 bg-slate-900/70 overflow-hidden shadow-sm">
         <div className="px-3 py-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => {
-                if (sortField === 'time') setSortAsc(!sortAsc);
-                else {
-                  setSortField('time');
-                  setSortAsc(false);
-                }
-              }}
-              className="hover:text-slate-200 transition-colors flex items-center gap-1"
-            >
-              <span>Interval / Interface</span>
-              {sortField === 'time' && <span>{sortAsc ? '↑' : '↓'}</span>}
-            </button>
-          </div>
+          <button
+            onClick={() => {
+              if (sortField === 'time') setSortAsc(!sortAsc);
+              else {
+                setSortField('time');
+                setSortAsc(false);
+              }
+            }}
+            className="hover:text-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+          >
+            <span>Interval / Interface</span>
+            {sortField === 'time' && <span>{sortAsc ? '↑' : '↓'}</span>}
+          </button>
 
           <div className="flex items-center gap-3">
             <button
@@ -718,7 +885,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   setSortAsc(false);
                 }
               }}
-              className="hover:text-sky-300 transition-colors flex items-center gap-0.5"
+              className="hover:text-sky-300 transition-colors flex items-center gap-0.5 cursor-pointer"
             >
               <span>Down</span>
               {sortField === 'down' && <span>{sortAsc ? '↑' : '↓'}</span>}
@@ -732,7 +899,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   setSortAsc(false);
                 }
               }}
-              className="hover:text-teal-300 transition-colors flex items-center gap-0.5"
+              className="hover:text-teal-300 transition-colors flex items-center gap-0.5 cursor-pointer"
             >
               <span>Up</span>
               {sortField === 'up' && <span>{sortAsc ? '↑' : '↓'}</span>}
@@ -746,7 +913,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   setSortAsc(false);
                 }
               }}
-              className="hover:text-slate-200 transition-colors flex items-center gap-0.5"
+              className="hover:text-slate-200 transition-colors flex items-center gap-0.5 cursor-pointer"
             >
               <span>Total</span>
               {sortField === 'total' && <span>{sortAsc ? '↑' : '↓'}</span>}
@@ -772,7 +939,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                       {item.dateStr} {item.hourStr}
                     </span>
                     <span className="text-[10px] text-slate-400 truncate block mt-0.5">
-                      Interface: <span className="text-slate-300">{item.topApp || 'Adapter'}</span>
+                      Interface: <span className="text-slate-300">{item.interfaceName || item.topApp || 'Adapter'}</span>
                     </span>
                   </div>
 

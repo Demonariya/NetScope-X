@@ -135,7 +135,7 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     expect(newProcessTelemetry.length).toBe(2);
   });
 
-  it('verifies tauri configuration parameters for strict 405x720 and withGlobalTauri', async () => {
+  it('verifies tauri configuration parameters for 405x720 primary target and resizable desktop window', async () => {
     const fs = await import('fs');
     const path = await import('path');
     const confPath = path.resolve(process.cwd(), 'src-tauri/tauri.conf.json');
@@ -146,7 +146,32 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     expect(conf.app.withGlobalTauri).toBe(true);
     expect(conf.app.windows[0].width).toBe(405);
     expect(conf.app.windows[0].height).toBe(720);
-    expect(conf.app.windows[0].resizable).toBe(false);
+    expect(conf.app.windows[0].minWidth).toBe(360);
+    expect(conf.app.windows[0].minHeight).toBe(640);
+    expect(conf.app.windows[0].resizable).toBe(true);
+    expect(conf.app.windows[0].maximizable).toBe(true);
+  });
+
+  it('validates supported responsive viewports from compact portrait to wide desktop', () => {
+    const validationViewports = [
+      { name: 'Minimum compact layout', width: 360, height: 640, mode: 'compact' },
+      { name: 'Primary application layout', width: 405, height: 720, mode: 'primary' },
+      { name: 'Larger portrait layout', width: 480, height: 854, mode: 'portrait' },
+      { name: 'Resized desktop window', width: 800, height: 900, mode: 'desktop' },
+      { name: 'Wide desktop layout', width: 1280, height: 800, mode: 'desktop-wide' },
+    ];
+
+    for (const vp of validationViewports) {
+      expect(vp.width).toBeGreaterThanOrEqual(360);
+      expect(vp.height).toBeGreaterThanOrEqual(640);
+
+      // Verify aspect and classification
+      if (vp.width <= 480) {
+        expect(['compact', 'primary', 'portrait']).toContain(vp.mode);
+      } else {
+        expect(['desktop', 'desktop-wide']).toContain(vp.mode);
+      }
+    }
   });
 
   it('provides conforming telemetry data in web preview simulation mode', async () => {

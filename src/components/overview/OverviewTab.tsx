@@ -134,15 +134,19 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     <div className="space-y-3 p-3 w-full pb-16">
       {/* 1. Connection Status Card */}
       <div
-        className={`rounded-xl border p-3 shadow-sm transition-all duration-200 ${
+        className={`rounded-xl border p-3 shadow-sm transition-all duration-200 w-full ${
           isLight
             ? 'bg-white/90 border-slate-200 hover:border-slate-300'
             : 'bg-slate-900/80 border-slate-800/80 hover:border-slate-700/80'
         }`}
       >
-        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800/60">
+        <div className={`flex items-center justify-between gap-2 pb-2.5 border-b ${
+          isLight ? 'border-slate-200' : 'border-slate-800/60'
+        }`}>
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-sky-400 shrink-0">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+              isLight ? 'bg-sky-50 text-sky-600 border border-sky-100' : 'bg-slate-800 text-sky-400'
+            }`}>
               {activeAdapter?.type === 'wifi' ? (
                 <Wifi className="w-4 h-4" />
               ) : (
@@ -150,8 +154,10 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-xs text-slate-100 truncate">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className={`font-semibold text-xs truncate ${
+                  isLight ? 'text-slate-900' : 'text-slate-100'
+                }`}>
                   {activeAdapter?.name || 'Network Adapter'}
                 </span>
                 <span className={`text-[10px] px-1.5 py-0.2 rounded-full border font-medium shrink-0 ${
@@ -164,7 +170,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   {!activeAdapter ? 'Unavailable' : activeAdapter.status === 'connected' ? 'Connected' : activeAdapter.status === 'connecting' ? 'Connecting' : 'Disconnected'}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 truncate">
+              <p className={`text-[11px] truncate ${
+                isLight ? 'text-slate-500' : 'text-slate-400'
+              }`}>
                 {adapterDescription}
               </p>
             </div>
@@ -176,7 +184,11 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <select
             value={selectedAdapterId}
             onChange={e => onSelectAdapter(e.target.value)}
-            className="w-full text-xs bg-slate-950 border border-slate-700/80 rounded-md px-2.5 py-1.5 text-slate-300 focus:outline-none focus:border-sky-500"
+            className={`w-full text-xs rounded-md px-2.5 py-1.5 focus:outline-none focus:border-sky-500 transition-colors ${
+              isLight
+                ? 'bg-slate-50 border border-slate-300 text-slate-800'
+                : 'bg-slate-950 border border-slate-700/80 text-slate-300'
+            }`}
           >
             <option value="auto">Auto Select Adapter (Gateway)</option>
             {visibleAdapters.map(a => (
@@ -195,50 +207,70 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.2 }}
-            className="grid grid-cols-2 gap-2 pt-2.5 text-xs"
+            className="grid grid-cols-2 gap-2 pt-2.5 text-xs w-full"
           >
             {/* Box 1: Local IPv4 */}
-            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[52px] flex flex-col justify-between">
+            <div className={`p-2 rounded-lg border min-w-0 min-h-[54px] h-auto flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/60'
+            }`}>
               <div className="h-4 flex items-center justify-between gap-1">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                <span className={`text-[10px] uppercase tracking-wider block font-sans truncate ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}>
                   Local IPv4
                 </span>
-                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                <span className={`text-[9px] font-mono uppercase shrink-0 px-1 py-0.2 rounded ${
+                  isLight ? 'bg-slate-200/70 text-slate-600' : 'bg-slate-900 text-slate-500'
+                }`}>
                   IPv4
                 </span>
               </div>
-              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
-                <span className="font-mono text-slate-200 font-medium truncate block text-xs flex-1 min-w-0" title={activeAdapter?.localIPv4}>
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0 mt-0.5">
+                <span className={`font-mono font-medium truncate block text-xs flex-1 min-w-0 ${
+                  isLight ? 'text-slate-800' : 'text-slate-200'
+                }`} title={activeAdapter?.localIPv4}>
                   <AnimatedValue value={activeAdapter?.localIPv4 || '--'} />
                 </span>
               </div>
             </div>
 
             {/* Box 2: Gateway */}
-            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[52px] flex flex-col justify-between">
+            <div className={`p-2 rounded-lg border min-w-0 min-h-[54px] h-auto flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/60'
+            }`}>
               <div className="h-4 flex items-center justify-between gap-1">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                <span className={`text-[10px] uppercase tracking-wider block font-sans truncate ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}>
                   Gateway
                 </span>
-                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                <span className={`text-[9px] font-mono uppercase shrink-0 px-1 py-0.2 rounded ${
+                  isLight ? 'bg-slate-200/70 text-slate-600' : 'bg-slate-900 text-slate-500'
+                }`}>
                   Router
                 </span>
               </div>
-              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
-                <span className="font-mono text-slate-200 font-medium truncate block text-xs flex-1 min-w-0" title={activeAdapter?.gateway}>
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0 mt-0.5">
+                <span className={`font-mono font-medium truncate block text-xs flex-1 min-w-0 ${
+                  isLight ? 'text-slate-800' : 'text-slate-200'
+                }`} title={activeAdapter?.gateway}>
                   <AnimatedValue value={activeAdapter?.gateway || '--'} />
                 </span>
               </div>
             </div>
 
             {/* Box 3: Wi-Fi Signal / Link Speed */}
-            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[52px] flex flex-col justify-between">
+            <div className={`p-2 rounded-lg border min-w-0 min-h-[54px] h-auto flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/60'
+            }`}>
               <div className="h-4 flex items-center justify-between gap-1">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                <span className={`text-[10px] uppercase tracking-wider block font-sans truncate ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}>
                   {activeAdapter?.type === 'wifi' ? 'Wi-Fi Signal' : 'Link Speed'}
                 </span>
                 {activeAdapter?.type === 'wifi' && (
-                  <div className="flex items-center gap-1 shrink-0" title={`Signal: ${wifiSignalPercent}%`}>
+                  <div className="flex items-center gap-1 shrink-0" title={`Signal: ${wifiSignalPercent}%${activeAdapter?.signalDbm != null ? ` (${activeAdapter.signalDbm} dBm)` : ''}`}>
                     <div className="flex items-end gap-[1.5px] h-2.5">
                       {[1, 2, 3, 4].map(bar => {
                         const isFilled = activeAdapter.status === 'connected' && wifiSignalPercent >= (bar * 25 - 15);
@@ -252,7 +284,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                                   : wifiSignalPercent >= 35
                                   ? 'bg-amber-400'
                                   : 'bg-rose-400'
-                                : 'bg-slate-800'
+                                : isLight ? 'bg-slate-300' : 'bg-slate-800'
                             }`}
                             style={{ height: `${bar * 25}%` }}
                           />
@@ -262,12 +294,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     <span
                       className={`text-[9px] font-mono font-bold ${
                         activeAdapter.status !== 'connected'
-                          ? 'text-slate-500'
+                          ? 'text-slate-400'
                           : wifiSignalPercent >= 65
-                          ? 'text-emerald-400'
+                          ? 'text-emerald-500'
                           : wifiSignalPercent >= 35
-                          ? 'text-amber-400'
-                          : 'text-rose-400'
+                          ? 'text-amber-500'
+                          : 'text-rose-500'
                       }`}
                     >
                       {activeAdapter.status === 'connected' ? `${wifiSignalPercent}%` : '0%'}
@@ -275,26 +307,30 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   </div>
                 )}
                 {activeAdapter?.type !== 'wifi' && (
-                  <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                  <span className={`text-[9px] font-mono uppercase shrink-0 px-1 py-0.2 rounded ${
+                    isLight ? 'bg-slate-200/70 text-slate-600' : 'bg-slate-900 text-slate-500'
+                  }`}>
                     {activeAdapter?.speedMbps ? (activeAdapter.speedMbps >= 1000 ? '1 Gbps' : '100 Mbps') : 'Speed'}
                   </span>
                 )}
               </div>
 
-              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0 mt-0.5">
                 <span
-                  className="font-mono text-slate-200 font-medium truncate block text-xs flex-1 min-w-0"
+                  className={`font-mono font-medium truncate block text-xs flex-1 min-w-0 ${
+                    isLight ? 'text-slate-800' : 'text-slate-200'
+                  }`}
                   title={
                     activeAdapter?.type === 'wifi'
-                      ? `Signal: ${wifiSignalPercent}% · SSID: ${activeAdapter.ssid || 'N/A'}${activeAdapter.signalDbm != null ? ` (${activeAdapter.signalDbm} dBm)` : ''}`
-                      : activeAdapter?.speedMbps ? `${activeAdapter.speedMbps} Mbps` : '--'
+                      ? `SSID: ${activeAdapter.ssid || 'N/A'} · Signal: ${wifiSignalPercent}%${activeAdapter.signalDbm != null ? ` (${activeAdapter.signalDbm} dBm)` : ''} · Speed: ${activeAdapter.speedMbps || 866} Mbps`
+                      : activeAdapter?.speedMbps ? `${activeAdapter.speedMbps} Mbps (Full Duplex)` : '--'
                   }
                 >
                   <AnimatedValue
                     value={
                       activeAdapter?.type === 'wifi'
                         ? activeAdapter.status === 'connected'
-                          ? `${wifiSignalPercent}% ${activeAdapter.signalDbm != null ? `(${activeAdapter.signalDbm} dBm)` : activeAdapter.ssid ? `(${activeAdapter.ssid})` : ''}`.trim()
+                          ? (activeAdapter.ssid || `${wifiSignalPercent}% Connected`)
                           : 'Disconnected'
                         : activeAdapter?.speedMbps ? `${activeAdapter.speedMbps} Mbps` : '--'
                     }
@@ -304,17 +340,25 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             </div>
 
             {/* Box 4: MAC Address */}
-            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[52px] flex flex-col justify-between">
+            <div className={`p-2 rounded-lg border min-w-0 min-h-[54px] h-auto flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/60'
+            }`}>
               <div className="h-4 flex items-center justify-between gap-1">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                <span className={`text-[10px] uppercase tracking-wider block font-sans truncate ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}>
                   MAC Address
                 </span>
-                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                <span className={`text-[9px] font-mono uppercase shrink-0 px-1 py-0.2 rounded ${
+                  isLight ? 'bg-slate-200/70 text-slate-600' : 'bg-slate-900 text-slate-500'
+                }`}>
                   Physical
                 </span>
               </div>
-              <div className="h-5 flex items-center justify-between gap-1 min-w-0">
-                <span className="font-mono text-slate-200 font-medium truncate block text-xs flex-1 min-w-0" title={activeAdapter?.macAddress}>
+              <div className="h-5 flex items-center justify-between gap-1 min-w-0 mt-0.5">
+                <span className={`font-mono font-medium truncate block text-xs flex-1 min-w-0 ${
+                  isLight ? 'text-slate-800' : 'text-slate-200'
+                }`} title={activeAdapter?.macAddress}>
                   <AnimatedValue value={activeAdapter?.macAddress || '--'} />
                 </span>
               </div>
@@ -324,7 +368,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       </div>
 
       {/* 2. Download and Upload Speed Cards */}
-      <div className="space-y-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         {/* Download Rate Card */}
         <div
           className={`rounded-xl border p-3 relative overflow-hidden transition-all duration-200 ${
@@ -471,7 +515,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
 
         {/* Chart Viewport */}
-        <div className="h-44 w-full pt-1">
+        <div className="h-44 w-full min-w-0 pt-1">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={filteredHistory} margin={{ top: 5, right: 5, left: -22, bottom: 0 }}>
               <defs>
@@ -582,9 +626,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             className="grid grid-cols-2 gap-2 pt-2.5"
           >
             {/* Latency Box 1: Current Ping */}
-            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[54px] flex flex-col justify-between">
+            <div className={`p-2 rounded-lg border min-w-0 h-[54px] flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/60'
+            }`}>
               <div className="h-4 flex items-center justify-between gap-1">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                <span className={`text-[10px] uppercase tracking-wider block font-sans truncate ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}>
                   Current Ping
                 </span>
                 <span
@@ -640,48 +688,60 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             </div>
 
             {/* Latency Box 2: Average Ping */}
-            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[54px] flex flex-col justify-between">
+            <div className={`p-2 rounded-lg border min-w-0 h-[54px] flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/60'
+            }`}>
               <div className="h-4 flex items-center justify-between gap-1">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                <span className={`text-[10px] uppercase tracking-wider block font-sans truncate ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}>
                   Average Ping
                 </span>
-                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                <span className="text-[9px] font-mono text-slate-400 uppercase shrink-0">
                   Rolling
                 </span>
               </div>
               <div className="h-5 flex items-center justify-between gap-1 min-w-0">
                 <AnimatedValue
                   value={hasSuccessfulPing ? formatLatency(avgLatencyMs) : '--'}
-                  className="text-sm font-semibold font-mono text-slate-200 truncate"
+                  className={`text-sm font-semibold font-mono truncate ${isLight ? 'text-slate-800' : 'text-slate-200'}`}
                 />
               </div>
             </div>
 
             {/* Latency Box 3: Min / Max */}
-            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[54px] flex flex-col justify-between">
+            <div className={`p-2 rounded-lg border min-w-0 h-[54px] flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/60'
+            }`}>
               <div className="h-4 flex items-center justify-between gap-1">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                <span className={`text-[10px] uppercase tracking-wider block font-sans truncate ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}>
                   Min / Max
                 </span>
-                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                <span className="text-[9px] font-mono text-slate-400 uppercase shrink-0">
                   Range
                 </span>
               </div>
               <div className="h-5 flex items-center justify-between gap-1 min-w-0">
                 <AnimatedValue
                   value={hasSuccessfulPing ? `${minLatencyMs.toFixed(0)} / ${maxLatencyMs.toFixed(0)} ms` : '--'}
-                  className="text-xs font-semibold font-mono text-slate-200 truncate"
+                  className={`text-xs font-semibold font-mono truncate ${isLight ? 'text-slate-800' : 'text-slate-200'}`}
                 />
               </div>
             </div>
 
             {/* Latency Box 4: Jitter & Loss */}
-            <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 min-w-0 h-[54px] flex flex-col justify-between">
+            <div className={`p-2 rounded-lg border min-w-0 h-[54px] flex flex-col justify-between transition-colors ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800/60'
+            }`}>
               <div className="h-4 flex items-center justify-between gap-1">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-sans truncate">
+                <span className={`text-[10px] uppercase tracking-wider block font-sans truncate ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}>
                   Jitter / Loss
                 </span>
-                <span className="text-[9px] font-mono text-slate-500 uppercase shrink-0">
+                <span className="text-[9px] font-mono text-slate-400 uppercase shrink-0">
                   Stability
                 </span>
               </div>
@@ -702,7 +762,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <span>Latency Variance (Last {latencyHistory.length} Probes)</span>
               <span className="font-mono text-emerald-400 font-semibold">{latencyMs.toFixed(1)} ms</span>
             </div>
-            <div className="h-12 w-full">
+            <div className="h-12 w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
                   data={latencyHistory.map((lat, idx) => ({ idx: idx + 1, lat: Number(lat.toFixed(1)) }))}
@@ -717,11 +777,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <YAxis hide domain={['dataMin - 2', 'dataMax + 2']} />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#090d16',
-                      borderColor: '#1e293b',
+                      backgroundColor: isLight ? '#ffffff' : '#090d16',
+                      borderColor: isLight ? '#cbd5e1' : '#1e293b',
                       borderRadius: '6px',
                       fontSize: '11px',
                       padding: '4px 8px',
+                      color: isLight ? '#0f172a' : '#f1f5f9',
                     }}
                     formatter={(value: any) => [`${value} ms`, 'Latency']}
                     labelFormatter={label => `Probe #${label}`}
@@ -742,20 +803,26 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         )}
 
         {/* Custom Ping Probe Form */}
-        <form onSubmit={handleCustomPingSubmit} className="mt-2.5 pt-2 border-t border-slate-800/60 flex items-center gap-2">
-          <div className="flex items-center gap-2 flex-1 bg-slate-950 border border-slate-800 rounded px-2.5 py-1">
+        <form onSubmit={handleCustomPingSubmit} className={`mt-2.5 pt-2 border-t flex items-center gap-2 ${
+          isLight ? 'border-slate-200' : 'border-slate-800/60'
+        }`}>
+          <div className={`flex items-center gap-2 flex-1 border rounded px-2.5 py-1 ${
+            isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+          }`}>
             <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
             <input
               type="text"
               placeholder="Hostname or IPv4 address, e.g. 1.1.1.1"
               value={customPingHost}
               onChange={e => setCustomPingHost(e.target.value)}
-              className="w-full bg-transparent text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none font-mono"
+              className={`w-full bg-transparent text-xs focus:outline-none font-mono ${
+                isLight ? 'text-slate-800 placeholder:text-slate-400' : 'text-slate-200 placeholder:text-slate-600'
+              }`}
             />
           </div>
           <button
             type="submit"
-            className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-semibold rounded transition-colors shrink-0"
+            className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-semibold rounded transition-colors shrink-0 cursor-pointer"
           >
             Probe
           </button>

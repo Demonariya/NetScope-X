@@ -1,3 +1,4 @@
+pub mod bandwidth;
 pub mod commands;
 pub mod monitoring;
 pub mod network;
@@ -103,6 +104,7 @@ pub fn run() {
                         let app_handle = window.app_handle().clone();
                         let _task = tauri::async_runtime::spawn_blocking(move || {
                             crate::monitoring::lifecycle::LifecycleManager::cleanup();
+                            let _ = crate::bandwidth::WindowsQosManager::cleanup_all_netscope_rules();
                             app_handle.exit(0);
                         });
                     }
@@ -126,6 +128,12 @@ pub fn run() {
             system_tray_action,
             set_monitoring_enabled,
             exit_app,
+            get_bandwidth_capabilities,
+            get_bandwidth_config,
+            apply_global_bandwidth_limit,
+            apply_app_bandwidth_limit,
+            remove_bandwidth_limit,
+            reset_all_bandwidth_limits,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NetScope X desktop suite");
