@@ -47,10 +47,11 @@ impl BandwidthUnit {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ApplicationPriority {
     Critical,
     High,
+    #[default]
     Normal,
     Low,
     Background,
@@ -77,12 +78,6 @@ impl ApplicationPriority {
             Self::Low => 1,
             Self::Background => 1,
         }
-    }
-}
-
-impl Default for ApplicationPriority {
-    fn default() -> Self {
-        Self::Normal
     }
 }
 

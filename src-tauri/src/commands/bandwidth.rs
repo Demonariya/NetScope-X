@@ -119,6 +119,7 @@ pub async fn apply_global_bandwidth_limit(
 }
 
 #[command]
+#[allow(clippy::too_many_arguments)]
 pub async fn apply_app_bandwidth_limit(
     name: String,
     target_type: String, // "application" | "process"
