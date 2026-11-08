@@ -18,6 +18,9 @@ export interface NetworkAdapter {
   signalPercent?: number; // for wifi (0-100)
   signalDbm?: number; // for wifi
   ssid?: string; // for wifi
+  radioType?: string; // e.g. 802.11ax, 802.11ac
+  rxLinkSpeedMbps?: number;
+  txLinkSpeedMbps?: number;
   speedMbps: number;
   isDefault: boolean;
 }

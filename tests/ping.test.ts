@@ -52,4 +52,22 @@ describe('Ping Timeouts & Typed Statuses — Priority Two Requirements', () => {
     expect(res.packetLossPercent).toBe(0);
     expect(res.history.length).toBeGreaterThan(0);
   });
+
+  it('verifies that changing the active ping target persists in application settings', () => {
+    const initialSettings = webSimulation.getSettings();
+    expect(initialSettings.diagnostics.activePingTarget).toBeDefined();
+
+    const newTarget = '8.8.8.8';
+    const updatedSettings = {
+      ...initialSettings,
+      diagnostics: {
+        ...initialSettings.diagnostics,
+        activePingTarget: newTarget,
+      },
+    };
+
+    webSimulation.saveSettings(updatedSettings);
+    const persisted = webSimulation.getSettings();
+    expect(persisted.diagnostics.activePingTarget).toBe('8.8.8.8');
+  });
 });

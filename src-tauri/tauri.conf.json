@@ -14,12 +14,12 @@
     "windows": [
       {
         "title": "NetScope X — Network Intelligence Suite",
-        "width": 405,
+        "width": 1080,
         "height": 720,
-        "minWidth": 360,
-        "minHeight": 640,
-        "resizable": true,
-        "maximizable": true,
+        "minWidth": 1080,
+        "minHeight": 720,
+        "resizable": false,
+        "maximizable": false,
         "fullscreen": false,
         "decorations": false,
         "transparent": false,

@@ -202,5 +202,21 @@ describe('Bandwidth Control & Windows QoS Unit Tests', () => {
       // Clean up limits
       webSimulation.resetAllBandwidthLimits();
     });
+
+    it('verifies the 800,000 bps throttle rate equals exactly 100 KB/s and is strictly opt-in', () => {
+      // 800,000 bps is exactly 100,000 bytes/sec or 100 KB/s (which severely restricted systems when applied inadvertently)
+      const throttleBps = 800_000;
+      const kbps = fromBitsPerSecond(throttleBps, 'KB/s');
+      expect(kbps).toBe(100);
+
+      // The default balanced profile must strictly have global throttling disabled
+      const presets = generatePresetProfiles();
+      const balanced = presets.find(p => p.presetType === 'balanced');
+      expect(balanced).toBeDefined();
+      expect(balanced?.globalDownloadEnabled).toBe(false);
+      expect(balanced?.globalUploadEnabled).toBe(false);
+      expect(balanced?.globalDownloadLimitBps).toBeUndefined();
+      expect(balanced?.globalUploadLimitBps).toBeUndefined();
+    });
   });
 });

@@ -86,6 +86,12 @@ pub fn run() {
                 let tray = tray::create_tray(app.handle())?;
                 app.manage(tray);
             }
+            // Clean up any lingering NetScope QoS policies from previous ungraceful exits
+            let _ = crate::bandwidth::WindowsQosManager::audit_and_cleanup_lingering_policies();
+
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.center();
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

@@ -575,15 +575,21 @@ export default function App() {
     try {
       const res = await api.getPing(cleanTarget, timeoutMs);
       if (pingSeqRef.current === seq) {
-        recordPingAttempt(res);
-        setSettings(prev =>
-          prev
-            ? {
-                ...prev,
-                diagnostics: { ...prev.diagnostics, activePingTarget: cleanTarget },
-              }
-            : prev
-        );
+        let updatedSettings: AppSettings | null = null;
+        setSettings(prev => {
+          if (!prev) return prev;
+          updatedSettings = {
+            ...prev,
+            diagnostics: { ...prev.diagnostics, activePingTarget: cleanTarget },
+          };
+          return updatedSettings;
+        });
+
+        if (updatedSettings) {
+          void api.saveSettings(updatedSettings).catch(error => {
+            console.warn('Ping target preference not saved:', error);
+          });
+        }
 
         if (res.status === 'success') {
           addToast('Ping Target Switched', `Target: ${cleanTarget} (${formatLatency(res.latencyMs)})`, 'success');
@@ -969,16 +975,25 @@ export default function App() {
         accentColor={accentColor}
       />
 
-      {/* Main Content Viewport Area with Vertical Scrolling and Responsive Container */}
-      <main className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden relative">
-        <div className="w-full max-w-2xl sm:max-w-3xl lg:max-w-4xl mx-auto min-h-full flex flex-col">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.14, ease: 'easeOut' }}
-            className="w-full flex-1 flex flex-col min-w-0"
-          >
+      {/* Main Body: Desktop Sidebar (w-52) + Content Viewport (872px on 1080px desktop) */}
+      <div className="flex-1 min-h-0 w-full flex overflow-hidden relative">
+        <Navigation
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          accentColor={accentColor}
+          isMonitoring={isMonitoring}
+          mode="sidebar"
+        />
+
+        <main className="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden relative">
+          <div className="w-full max-w-5xl mx-auto min-h-full flex flex-col p-1 sm:p-2">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.14, ease: 'easeOut' }}
+              className="w-full flex-1 flex flex-col min-w-0"
+            >
             {activeTab === 'overview' && (
               <OverviewTab
                 adapters={adapters}
@@ -1078,12 +1093,15 @@ export default function App() {
           </motion.div>
         </div>
       </main>
+    </div>
 
-      {/* Bottom Navigation Bar - Fixed Height */}
+      {/* Bottom Navigation Bar for Mobile / Compact Viewports - Hidden on Desktop md+ */}
       <Navigation
         activeTab={activeTab}
         onTabChange={setActiveTab}
         accentColor={accentColor}
+        isMonitoring={isMonitoring}
+        mode="bottom"
       />
 
       {/* Toast Notification Container with 5-Second Timer */}

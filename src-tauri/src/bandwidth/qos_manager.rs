@@ -25,7 +25,10 @@ impl WindowsQosManager {
         }
 
         let mut script_parts = Vec::new();
-        // First remove existing policy with this name to prevent conflict
+        // First remove existing policy from both ActiveStore and persistent store to avoid conflicts
+        script_parts.push(format!(
+            "Remove-NetQosPolicy -Name '{policy_name}' -PolicyStore 'ActiveStore' -Confirm:$false -ErrorAction SilentlyContinue;"
+        ));
         script_parts.push(format!(
             "Remove-NetQosPolicy -Name '{policy_name}' -Confirm:$false -ErrorAction SilentlyContinue;"
         ));
@@ -35,10 +38,10 @@ impl WindowsQosManager {
         // Target application or executable if applicable
         if rule.target_type == "application" || rule.target_type == "process" {
             if let Some(ref path) = rule.app_path {
-                let clean_path = path.replace("'", "''");
+                let clean_path = path.replace('\'', "''");
                 new_cmd.push_str(&format!(" -AppPathName '{clean_path}'"));
             } else if !rule.target_identifier.is_empty() {
-                let clean_id = rule.target_identifier.replace("'", "''");
+                let clean_id = rule.target_identifier.replace('\'', "''");
                 new_cmd.push_str(&format!(" -AppPathName '{clean_id}'"));
             }
         }
@@ -65,7 +68,7 @@ impl WindowsQosManager {
         // Optional interface alias
         if let Some(ref alias) = rule.adapter_alias {
             if alias != "auto" && !alias.is_empty() {
-                let clean_alias = alias.replace("'", "''");
+                let clean_alias = alias.replace('\'', "''");
                 new_cmd.push_str(&format!(" -InterfaceAlias '{clean_alias}'"));
             }
         }
@@ -86,11 +89,20 @@ impl WindowsQosManager {
         }
     }
 
-    /// Removes an application-owned NetScope QoS policy.
+    /// Removes an application-owned NetScope QoS policy and verifies it is absent from ActiveStore.
     pub fn remove_rule(target_type: &str, identifier: &str) -> Result<String, String> {
         let policy_name = Self::format_policy_name(target_type, identifier);
+        // Explicitly remove from both ActiveStore and persistent store, then verify absence
         let script = format!(
-            "Remove-NetQosPolicy -Name '{policy_name}' -Confirm:$false -ErrorAction SilentlyContinue;"
+            "$ErrorActionPreference = 'SilentlyContinue'; \
+             Remove-NetQosPolicy -Name '{policy_name}' -PolicyStore 'ActiveStore' -Confirm:$false; \
+             Remove-NetQosPolicy -Name '{policy_name}' -Confirm:$false; \
+             $active = @(Get-NetQosPolicy -Name '{policy_name}' -PolicyStore 'ActiveStore'); \
+             $def = @(Get-NetQosPolicy -Name '{policy_name}'); \
+             if ($active.Count -gt 0 -or $def.Count -gt 0) {{ \
+                 Write-Error \"NetScope QoS policy '{policy_name}' could not be verified\"; \
+                 exit 1; \
+             }}"
         );
 
         #[cfg(windows)]
@@ -107,7 +119,18 @@ impl WindowsQosManager {
     /// Removes all NetScope-owned QoS policies without touching unrelated user network policies.
     pub fn cleanup_all_netscope_rules() -> Result<String, String> {
         let script = format!(
-            "Get-NetQosPolicy -Name '{NETSCOPE_QOS_PREFIX}*' -ErrorAction SilentlyContinue | Remove-NetQosPolicy -Confirm:$false -ErrorAction SilentlyContinue;"
+            "$ErrorActionPreference = 'SilentlyContinue'; \
+             Get-NetQosPolicy -PolicyStore 'ActiveStore' | \
+                 Where-Object {{ $_.Name -like '{NETSCOPE_QOS_PREFIX}*' -or $_.Name -like 'netscopex_*' }} | \
+                 Remove-NetQosPolicy -Confirm:$false; \
+             Get-NetQosPolicy | \
+                 Where-Object {{ $_.Name -like '{NETSCOPE_QOS_PREFIX}*' -or $_.Name -like 'netscopex_*' }} | \
+                 Remove-NetQosPolicy -Confirm:$false; \
+             $rem = @(Get-NetQosPolicy -PolicyStore 'ActiveStore' | \
+                 Where-Object {{ $_.Name -like '{NETSCOPE_QOS_PREFIX}*' -or $_.Name -like 'netscopex_*' }}); \
+             if ($rem.Count -gt 0) {{ \
+                 $rem | Remove-NetQosPolicy -Confirm:$false; \
+             }}"
         );
 
         #[cfg(windows)]
@@ -119,5 +142,10 @@ impl WindowsQosManager {
             let _ = script;
             Ok("All NetScope QoS policies cleaned up".to_string())
         }
+    }
+
+    /// Audits Windows QoS policies on startup and eliminates any dangling NetScope limits.
+    pub fn audit_and_cleanup_lingering_policies() -> Result<String, String> {
+        Self::cleanup_all_netscope_rules()
     }
 }

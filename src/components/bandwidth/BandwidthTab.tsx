@@ -119,7 +119,15 @@ export const BandwidthTab: React.FC<BandwidthTabProps> = ({
   const [showSaveProfileModal, setShowSaveProfileModal] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
   const [appSearch, setAppSearch] = useState('');
-  const [selectedAppForEdit, setSelectedAppForEdit] = useState<ProcessNetworkUsage | null>(null);
+  const [selectedAppForEdit, setSelectedAppForEdit] = useState<{
+    friendlyName: string;
+    exeName: string;
+    pid?: number;
+    fullPath?: string;
+    isGroup: boolean;
+  } | null>(null);
+  const [isAppsGrouped, setIsAppsGrouped] = useState(true);
+  const [expandedAppKeys, setExpandedAppKeys] = useState<Set<string>>(new Set());
 
   // Editing Rule modal state
   const [editAppDownLimit, setEditAppDownLimit] = useState('');
@@ -134,7 +142,96 @@ export const BandwidthTab: React.FC<BandwidthTabProps> = ({
   // Previous configuration backup for restore button
   const [previousConfigBackup, setPreviousConfigBackup] = useState<BandwidthConfig | null>(null);
 
-  // Filter running processes by search
+  // Group processes by executable name into unified application entities
+  const groupedBandwidthApps = useMemo(() => {
+    const map = new Map<string, {
+      id: string;
+      exeName: string;
+      friendlyName: string;
+      icon?: string;
+      fullPath?: string;
+      instances: ProcessNetworkUsage[];
+      instanceCount: number;
+      downloadBps: number;
+      uploadBps: number;
+      totalBytes: number;
+      primaryPid: number;
+      rule?: BandwidthLimitRule;
+      childRules: BandwidthLimitRule[];
+    }>();
+
+    for (const proc of processes) {
+      const rawExe = (proc.exeName || proc.name || 'unknown').trim();
+      const baseName = rawExe.split(/[/\\]/).pop() || rawExe;
+      const key = baseName.toLowerCase().trim();
+      let group = map.get(key);
+
+      if (!group) {
+        const appRule = bandwidthConfig.appRules.find(
+          r => r.targetType === 'application' && r.targetIdentifier.toLowerCase() === key
+        );
+        group = {
+          id: key,
+          exeName: proc.exeName || proc.name,
+          friendlyName: proc.friendlyName || proc.exeName || proc.name,
+          icon: proc.icon,
+          fullPath: proc.fullPath || '',
+          instances: [],
+          instanceCount: 0,
+          downloadBps: 0,
+          uploadBps: 0,
+          totalBytes: 0,
+          primaryPid: proc.pid,
+          rule: appRule,
+          childRules: [],
+        };
+        map.set(key, group);
+      }
+
+      group.instanceCount += 1;
+      group.instances.push(proc);
+      group.downloadBps += proc.downloadBps;
+      group.uploadBps += proc.uploadBps;
+      group.totalBytes += proc.totalBytes;
+      if (!group.icon && proc.icon) group.icon = proc.icon;
+      if (!group.fullPath && proc.fullPath) group.fullPath = proc.fullPath;
+      if (group.friendlyName.endsWith('.exe') && proc.friendlyName && !proc.friendlyName.endsWith('.exe')) {
+        group.friendlyName = proc.friendlyName;
+      }
+
+      const procRule = bandwidthConfig.appRules.find(
+        r => r.targetType === 'process' && r.pid === proc.pid
+      );
+      if (procRule) {
+        group.childRules.push(procRule);
+      }
+    }
+
+    let list = Array.from(map.values());
+
+    if (appSearch.trim()) {
+      const q = appSearch.toLowerCase().trim();
+      list = list.filter(
+        app =>
+          app.friendlyName.toLowerCase().includes(q) ||
+          app.exeName.toLowerCase().includes(q) ||
+          app.instances.some(inst => String(inst.pid).includes(q))
+      );
+    }
+
+    // Sort by active limits first, then by combined bandwidth throughput
+    list.sort((a, b) => {
+      const aHasLimit = Boolean(a.rule || a.childRules.length > 0);
+      const bHasLimit = Boolean(b.rule || b.childRules.length > 0);
+      if (aHasLimit && !bHasLimit) return -1;
+      if (!aHasLimit && bHasLimit) return 1;
+      return (b.downloadBps + b.uploadBps) - (a.downloadBps + a.uploadBps);
+    });
+
+    return list;
+  }, [processes, bandwidthConfig.appRules, appSearch]);
+
+  // Filter running processes by search (for individual process mode)
   const filteredProcesses = useMemo(() => {
     if (!appSearch.trim()) return processes;
     const q = appSearch.toLowerCase().trim();
@@ -214,12 +311,58 @@ export const BandwidthTab: React.FC<BandwidthTabProps> = ({
     onShowToast('Configuration Restored', 'Restored previous bandwidth limits.', 'success');
   };
 
-  const openAppLimitEditor = (proc: ProcessNetworkUsage) => {
-    setSelectedAppForEdit(proc);
+  const toggleExpandApp = (key: string) => {
+    setExpandedAppKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const openGroupLimitEditor = (group: {
+    exeName: string;
+    friendlyName: string;
+    fullPath?: string;
+    primaryPid: number;
+    rule?: BandwidthLimitRule;
+  }) => {
+    setSelectedAppForEdit({
+      friendlyName: group.friendlyName,
+      exeName: group.exeName,
+      pid: group.primaryPid,
+      fullPath: group.fullPath,
+      isGroup: true,
+    });
+    setEditIsGroup(true);
+
+    if (group.rule) {
+      setEditAppDownEnabled(group.rule.downloadEnabled);
+      setEditAppUpEnabled(group.rule.uploadEnabled);
+      setEditAppDownValueFromBits(group.rule.downloadLimitBps);
+      setEditAppUpValueFromBits(group.rule.uploadLimitBps);
+      setEditAppPriority(group.rule.priority);
+    } else {
+      setEditAppDownEnabled(false);
+      setEditAppUpEnabled(false);
+      setEditAppDownLimit('');
+      setEditAppUpLimit('');
+      setEditAppPriority('Normal');
+    }
+  };
+
+  const openProcessInstanceLimitEditor = (proc: ProcessNetworkUsage) => {
+    setSelectedAppForEdit({
+      friendlyName: proc.friendlyName || proc.exeName,
+      exeName: proc.exeName,
+      pid: proc.pid,
+      fullPath: proc.fullPath,
+      isGroup: false,
+    });
+    setEditIsGroup(false);
+
     const existingRule = bandwidthConfig.appRules.find(
-      r =>
-        (r.targetType === 'application' && r.targetIdentifier.toLowerCase() === proc.exeName.toLowerCase()) ||
-        (r.targetType === 'process' && r.pid === proc.pid)
+      r => r.targetType === 'process' && r.pid === proc.pid
     );
 
     if (existingRule) {
@@ -228,15 +371,17 @@ export const BandwidthTab: React.FC<BandwidthTabProps> = ({
       setEditAppDownValueFromBits(existingRule.downloadLimitBps);
       setEditAppUpValueFromBits(existingRule.uploadLimitBps);
       setEditAppPriority(existingRule.priority);
-      setEditIsGroup(existingRule.targetType === 'application');
     } else {
       setEditAppDownEnabled(false);
       setEditAppUpEnabled(false);
       setEditAppDownLimit('');
       setEditAppUpLimit('');
       setEditAppPriority('Normal');
-      setEditIsGroup(true);
     }
+  };
+
+  const openAppLimitEditor = (proc: ProcessNetworkUsage) => {
+    openProcessInstanceLimitEditor(proc);
   };
 
   const setEditAppDownValueFromBits = (bits?: number) => {
@@ -625,9 +770,21 @@ export const BandwidthTab: React.FC<BandwidthTabProps> = ({
               Per-Application Limits & Priority
             </h3>
           </div>
-          <span className="text-[10px] font-mono text-slate-400">
-            {bandwidthConfig.appRules.length} rules active
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsAppsGrouped(prev => !prev)}
+              className={`text-[10px] px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                isAppsGrouped
+                  ? 'bg-purple-500/15 border-purple-500/40 text-purple-300 font-medium'
+                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {isAppsGrouped ? 'Combined by App' : 'All Processes'}
+            </button>
+            <span className="text-[10px] font-mono text-slate-400">
+              {bandwidthConfig.appRules.length} rules active
+            </span>
+          </div>
         </div>
 
         {/* App Search Bar */}
@@ -635,90 +792,248 @@ export const BandwidthTab: React.FC<BandwidthTabProps> = ({
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
           <input
             type="text"
-            placeholder="Search application to configure speed caps & priority..."
+            placeholder={isAppsGrouped ? "Search application by name or PID..." : "Search process by name or PID..."}
             value={appSearch}
             onChange={e => setAppSearch(e.target.value)}
             className="w-full pl-8 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-sky-500"
           />
         </div>
 
-        {/* Process List with active bandwidth limit indicators */}
-        <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-          {filteredProcesses.map(proc => {
-            const rule = bandwidthConfig.appRules.find(
-              r =>
-                (r.targetType === 'application' && r.targetIdentifier.toLowerCase() === proc.exeName.toLowerCase()) ||
-                (r.targetType === 'process' && r.pid === proc.pid)
-            );
+        {/* Combined Applications or Individual Process List */}
+        <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+          {isAppsGrouped ? (
+            groupedBandwidthApps.length === 0 ? (
+              <div className="p-6 text-center text-slate-500 text-xs">
+                No running applications match filter.
+              </div>
+            ) : (
+              groupedBandwidthApps.map(app => {
+                const isExpanded = expandedAppKeys.has(app.id);
+                const hasActiveAppLimit = Boolean(
+                  app.rule && (app.rule.downloadEnabled || app.rule.uploadEnabled || app.rule.priority !== 'Normal')
+                );
+                const hasChildLimits = app.childRules.length > 0;
 
-            const hasActiveLimit = Boolean(
-              rule && (rule.downloadEnabled || rule.uploadEnabled || rule.priority !== 'Normal')
-            );
+                return (
+                  <div
+                    key={`group_${app.id}`}
+                    className={`rounded-lg border transition-all overflow-hidden ${
+                      hasActiveAppLimit
+                        ? 'bg-slate-950 border-sky-500/40'
+                        : hasChildLimits
+                        ? 'bg-slate-950/80 border-amber-500/30'
+                        : 'bg-slate-950/60 border-slate-800/60 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="p-2 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        {app.instanceCount > 1 ? (
+                          <button
+                            onClick={() => toggleExpandApp(app.id)}
+                            title={isExpanded ? "Collapse instances" : "Expand instances"}
+                            className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 transition-colors shrink-0 cursor-pointer"
+                          >
+                            {isExpanded ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        ) : (
+                          <div className="w-5" />
+                        )}
 
-            return (
-              <div
-                key={`proc_${proc.pid}`}
-                className={`p-2 rounded-lg border transition-all flex items-center justify-between gap-2 ${
-                  hasActiveLimit
-                    ? 'bg-slate-950 border-sky-500/40'
-                    : 'bg-slate-950/60 border-slate-800/60 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <ProcessIcon
-                    exeName={proc.exeName}
-                    icon={proc.icon}
-                    containerClassName="w-7 h-7 rounded-lg bg-slate-900 p-1 border border-slate-800 shrink-0 flex items-center justify-center overflow-hidden"
-                    className="w-4 h-4"
-                    size={16}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-semibold text-xs text-slate-100 truncate">
-                        {proc.friendlyName || proc.exeName}
-                      </span>
-                      <span className="text-[9px] font-mono text-slate-500 shrink-0">
-                        PID {proc.pid}
-                      </span>
-                    {rule && rule.priority !== 'Normal' && (
-                      <span className="text-[9px] px-1 py-0.2 rounded font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0">
-                        {rule.priority}
-                      </span>
+                        <ProcessIcon
+                          exeName={app.exeName}
+                          icon={app.icon}
+                          containerClassName="w-7 h-7 rounded-lg bg-slate-900 p-1 border border-slate-800 shrink-0 flex items-center justify-center overflow-hidden"
+                          className="w-4 h-4"
+                          size={16}
+                        />
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-semibold text-xs text-slate-100 truncate">
+                              {app.friendlyName || app.exeName}
+                            </span>
+                            <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-800/80 text-slate-400 font-mono shrink-0">
+                              {app.instanceCount} {app.instanceCount === 1 ? 'instance' : 'instances'}
+                            </span>
+                            {app.rule && app.rule.priority !== 'Normal' && (
+                              <span className="text-[9px] px-1 py-0.2 rounded font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0">
+                                {app.rule.priority}
+                              </span>
+                            )}
+                            {hasChildLimits && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                                {app.childRules.length} PID {app.childRules.length === 1 ? 'rule' : 'rules'}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 mt-0.5 truncate">
+                            <span className="text-sky-400">↓ {formatSpeed(app.downloadBps).full}</span>
+                            <span className="text-teal-400">↑ {formatSpeed(app.uploadBps).full}</span>
+                            {app.rule?.uploadLimitBps && app.rule.uploadEnabled ? (
+                              <span className="text-amber-300">
+                                Cap: {formatBandwidthLimit(app.rule.uploadLimitBps)}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => openGroupLimitEditor(app)}
+                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
+                        >
+                          {hasActiveAppLimit ? 'Edit App Limit' : 'Set App Limit'}
+                        </button>
+                        {hasActiveAppLimit && (
+                          <button
+                            onClick={() => handleRemoveAppRule(app.rule!.targetType, app.rule!.targetIdentifier)}
+                            title="Clear limit for this application"
+                            className="p-1 rounded bg-slate-900 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 border border-slate-800 transition-colors cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Child Process Instances Accordion */}
+                    {isExpanded && app.instanceCount > 1 && (
+                      <div className="border-t border-slate-800/60 bg-slate-950/90 p-2 space-y-1.5">
+                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">
+                          Running Instances ({app.instances.length})
+                        </div>
+                        {app.instances.map(inst => {
+                          const instRule = app.childRules.find(r => r.pid === inst.pid);
+                          return (
+                            <div
+                              key={`inst_${inst.pid}`}
+                              className="flex items-center justify-between gap-2 p-1.5 rounded bg-slate-900/60 border border-slate-800/40 text-xs"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-[10px] font-mono text-slate-400">
+                                  PID #{inst.pid}
+                                </span>
+                                <span className="text-[10px] font-mono text-sky-400">
+                                  ↓ {formatSpeed(inst.downloadBps).full}
+                                </span>
+                                <span className="text-[10px] font-mono text-teal-400">
+                                  ↑ {formatSpeed(inst.uploadBps).full}
+                                </span>
+                                {instRule && (
+                                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300">
+                                    PID {instRule.priority}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => openProcessInstanceLimitEditor(inst)}
+                                  className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                                >
+                                  {instRule ? 'Edit PID' : 'Set PID'}
+                                </button>
+                                {instRule && (
+                                  <button
+                                    onClick={() => handleRemoveAppRule('process', String(inst.pid))}
+                                    title="Clear PID limit"
+                                    className="p-0.5 text-rose-400 hover:bg-rose-950/50 rounded cursor-pointer"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
+                );
+              })
+            )
+          ) : (
+            filteredProcesses.map(proc => {
+              const rule = bandwidthConfig.appRules.find(
+                r =>
+                  (r.targetType === 'application' && r.targetIdentifier.toLowerCase() === proc.exeName.toLowerCase()) ||
+                  (r.targetType === 'process' && r.pid === proc.pid)
+              );
 
-                  <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 mt-0.5 truncate">
-                    <span className="text-sky-400">↓ {formatSpeed(proc.downloadBps).full}</span>
-                    <span className="text-teal-400">↑ {formatSpeed(proc.uploadBps).full}</span>
-                    {rule?.uploadLimitBps && rule.uploadEnabled ? (
-                      <span className="text-amber-300">
-                        Cap: {formatBandwidthLimit(rule.uploadLimitBps)}
-                      </span>
-                    ) : null}
+              const hasActiveLimit = Boolean(
+                rule && (rule.downloadEnabled || rule.uploadEnabled || rule.priority !== 'Normal')
+              );
+
+              return (
+                <div
+                  key={`proc_${proc.pid}`}
+                  className={`p-2 rounded-lg border transition-all flex items-center justify-between gap-2 ${
+                    hasActiveLimit
+                      ? 'bg-slate-950 border-sky-500/40'
+                      : 'bg-slate-950/60 border-slate-800/60 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <ProcessIcon
+                      exeName={proc.exeName}
+                      icon={proc.icon}
+                      containerClassName="w-7 h-7 rounded-lg bg-slate-900 p-1 border border-slate-800 shrink-0 flex items-center justify-center overflow-hidden"
+                      className="w-4 h-4"
+                      size={16}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-xs text-slate-100 truncate">
+                          {proc.friendlyName || proc.exeName}
+                        </span>
+                        <span className="text-[9px] font-mono text-slate-500 shrink-0">
+                          PID {proc.pid}
+                        </span>
+                        {rule && rule.priority !== 'Normal' && (
+                          <span className="text-[9px] px-1 py-0.2 rounded font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0">
+                            {rule.priority}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 mt-0.5 truncate">
+                        <span className="text-sky-400">↓ {formatSpeed(proc.downloadBps).full}</span>
+                        <span className="text-teal-400">↑ {formatSpeed(proc.uploadBps).full}</span>
+                        {rule?.uploadLimitBps && rule.uploadEnabled ? (
+                          <span className="text-amber-300">
+                            Cap: {formatBandwidthLimit(rule.uploadLimitBps)}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => openProcessInstanceLimitEditor(proc)}
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
+                    >
+                      {hasActiveLimit ? 'Edit Limit' : 'Set Limit'}
+                    </button>
+                    {hasActiveLimit && (
+                      <button
+                        onClick={() => handleRemoveAppRule(rule!.targetType, rule!.targetIdentifier)}
+                        title="Clear limit for this process"
+                        className="p-1 rounded bg-slate-900 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 border border-slate-800 transition-colors cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
-              </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={() => openAppLimitEditor(proc)}
-                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
-                  >
-                    {hasActiveLimit ? 'Edit Limit' : 'Set Limit'}
-                  </button>
-                  {hasActiveLimit && (
-                    <button
-                      onClick={() => handleRemoveAppRule(rule!.targetType, rule!.targetIdentifier)}
-                      title="Clear limit for this application"
-                      className="p-1 rounded bg-slate-900 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 border border-slate-800 transition-colors cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -743,7 +1058,8 @@ export const BandwidthTab: React.FC<BandwidthTabProps> = ({
                     Configure Limits & Priority
                   </h3>
                   <p className="text-[11px] text-slate-400 truncate">
-                    {selectedAppForEdit.friendlyName || selectedAppForEdit.exeName} (PID {selectedAppForEdit.pid})
+                    {selectedAppForEdit.friendlyName || selectedAppForEdit.exeName}{' '}
+                    {editIsGroup ? '(All Instances)' : selectedAppForEdit.pid ? `(PID ${selectedAppForEdit.pid})` : ''}
                   </p>
                 </div>
                 <button

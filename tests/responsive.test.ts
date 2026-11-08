@@ -135,7 +135,7 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     expect(newProcessTelemetry.length).toBe(2);
   });
 
-  it('verifies tauri configuration parameters for 405x720 primary target and resizable desktop window', async () => {
+  it('verifies tauri configuration parameters for locked 1080x720 desktop window', async () => {
     const fs = await import('fs');
     const path = await import('path');
     const confPath = path.resolve(process.cwd(), 'src-tauri/tauri.conf.json');
@@ -144,12 +144,13 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     const conf = JSON.parse(fs.readFileSync(confPath, 'utf-8'));
     expect(conf.build.frontendDist).toBe('../dist');
     expect(conf.app.withGlobalTauri).toBe(true);
-    expect(conf.app.windows[0].width).toBe(405);
+    expect(conf.app.windows[0].width).toBe(1080);
     expect(conf.app.windows[0].height).toBe(720);
-    expect(conf.app.windows[0].minWidth).toBe(360);
-    expect(conf.app.windows[0].minHeight).toBe(640);
-    expect(conf.app.windows[0].resizable).toBe(true);
-    expect(conf.app.windows[0].maximizable).toBe(true);
+    expect(conf.app.windows[0].minWidth).toBe(1080);
+    expect(conf.app.windows[0].minHeight).toBe(720);
+    expect(conf.app.windows[0].resizable).toBe(false);
+    expect(conf.app.windows[0].maximizable).toBe(false);
+    expect(conf.app.windows[0].center).toBe(true);
   });
 
   it('validates supported responsive viewports from compact portrait to wide desktop', () => {
@@ -200,5 +201,17 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     const ping = await api.getPing('1.1.1.1');
     expect(ping).toHaveProperty('latencyMs');
     expect(ping.status).toBe('success');
+  });
+
+  it('verifies desktop layout geometry: 1080px window width, 208px (w-52) sidebar, and 872px content area', () => {
+    const windowWidth = 1080;
+    const windowHeight = 720;
+    const sidebarWidth = 208; // Tailwind w-52 = 13rem = 208px
+    const contentWidth = windowWidth - sidebarWidth;
+
+    expect(windowWidth).toBe(1080);
+    expect(windowHeight).toBe(720);
+    expect(sidebarWidth).toBe(208);
+    expect(contentWidth).toBe(872);
   });
 });

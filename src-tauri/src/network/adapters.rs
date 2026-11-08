@@ -37,6 +37,9 @@ pub struct NetworkAdapter {
     pub signal_percent: Option<u8>,
     pub signal_dbm: Option<i16>,
     pub ssid: Option<String>,
+    pub radio_type: Option<String>,
+    pub rx_link_speed_mbps: Option<u32>,
+    pub tx_link_speed_mbps: Option<u32>,
     pub speed_mbps: u32,
     pub is_default: bool,
 }
@@ -137,15 +140,27 @@ try {
   if ($netshOutput) {
     $curSsid = $null
     $curSignal = $null
+    $curRadio = $null
+    $curRx = $null
+    $curTx = $null
     foreach ($line in $netshOutput) {
-      if ($line -match '^\s*SSID\s*:\s*(.+)$') {
+      if ($line -match '^\s*SSID\s*:\s*(.+)$' -and $line -notmatch '^\s*BSSID') {
         $curSsid = [string]$Matches[1].Trim()
       } elseif ($line -match '^\s*Signal\s*:\s*([0-9]+)%') {
         $curSignal = [int]$Matches[1]
+      } elseif ($line -match '^\s*Radio\s*type\s*:\s*(.+)$') {
+        $curRadio = [string]$Matches[1].Trim()
+      } elseif ($line -match '^\s*Receive\s*rate\s*\(Mbps\)\s*:\s*([0-9]+(?:\.[0-9]+)?)') {
+        $curRx = [int][math]::Round([double]$Matches[1])
+      } elseif ($line -match '^\s*Transmit\s*rate\s*\(Mbps\)\s*:\s*([0-9]+(?:\.[0-9]+)?)') {
+        $curTx = [int][math]::Round([double]$Matches[1])
       }
     }
     if ($curSsid) { $wifiDetails['ssid'] = $curSsid }
     if ($null -ne $curSignal) { $wifiDetails['signal'] = $curSignal }
+    if ($curRadio) { $wifiDetails['radioType'] = $curRadio }
+    if ($null -ne $curRx) { $wifiDetails['rxRate'] = $curRx }
+    if ($null -ne $curTx) { $wifiDetails['txRate'] = $curTx }
   }
 } catch {
   # Wi-Fi metadata is optional
@@ -192,7 +207,11 @@ $rows = @(
 
       $adapterSsid = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('ssid')) { [string]$wifiDetails['ssid'] } else { $null }
       $adapterSignal = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('signal')) { [int]$wifiDetails['signal'] } else { $null }
-      $adapterDbm = if ($adapterSignal -ne $null) { [int][math]::Round(-100 + ($adapterSignal / 2)) } else { $null }
+      $adapterRadio = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('radioType')) { [string]$wifiDetails['radioType'] } else { $null }
+      $adapterRx = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('rxRate')) { [int]$wifiDetails['rxRate'] } else { $null }
+      $adapterTx = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('txRate')) { [int]$wifiDetails['txRate'] } else { $null }
+      # Never fabricate signal dBm: only populated if reported by driver
+      $adapterDbm = $null
 
       [pscustomobject]@{
         id = [string]$adapter.ifIndex
@@ -208,6 +227,9 @@ $rows = @(
         signalPercent = $adapterSignal
         signalDbm = $adapterDbm
         ssid = $adapterSsid
+        radioType = $adapterRadio
+        rxLinkSpeedMbps = $adapterRx
+        txLinkSpeedMbps = $adapterTx
         speedMbps = $speed
         isDefault = -not [string]::IsNullOrWhiteSpace($gateway)
       }

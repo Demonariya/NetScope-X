@@ -108,9 +108,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const wifiSignalPercent =
     typeof activeAdapter?.signalPercent === 'number'
       ? activeAdapter.signalPercent
-      : activeAdapter?.type === 'wifi' && activeAdapter.status === 'connected'
-      ? 92
-      : 0;
+      : null;
 
   // Filter chart history based on timeframe
   const filteredHistory = React.useMemo(() => {
@@ -270,47 +268,55 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   {activeAdapter?.type === 'wifi' ? 'Wi-Fi Signal' : 'Link Speed'}
                 </span>
                 {activeAdapter?.type === 'wifi' && (
-                  <div className="flex items-center gap-1 shrink-0" title={`Signal: ${wifiSignalPercent}%${activeAdapter?.signalDbm != null ? ` (${activeAdapter.signalDbm} dBm)` : ''}`}>
-                    <div className="flex items-end gap-[1.5px] h-2.5">
-                      {[1, 2, 3, 4].map(bar => {
-                        const isFilled = activeAdapter.status === 'connected' && wifiSignalPercent >= (bar * 25 - 15);
-                        return (
-                          <span
-                            key={bar}
-                            className={`w-[3px] rounded-xs transition-colors duration-200 ${
-                              isFilled
-                                ? wifiSignalPercent >= 65
-                                  ? 'bg-emerald-400'
-                                  : wifiSignalPercent >= 35
-                                  ? 'bg-amber-400'
-                                  : 'bg-rose-400'
-                                : isLight ? 'bg-slate-300' : 'bg-slate-800'
-                            }`}
-                            style={{ height: `${bar * 25}%` }}
-                          />
-                        );
-                      })}
-                    </div>
-                    <span
-                      className={`text-[9px] font-mono font-bold ${
-                        activeAdapter.status !== 'connected'
-                          ? 'text-slate-400'
-                          : wifiSignalPercent >= 65
-                          ? 'text-emerald-500'
-                          : wifiSignalPercent >= 35
-                          ? 'text-amber-500'
-                          : 'text-rose-500'
-                      }`}
-                    >
-                      {activeAdapter.status === 'connected' ? `${wifiSignalPercent}%` : '0%'}
-                    </span>
+                  <div className="flex items-center gap-1 shrink-0" title={`Signal: ${wifiSignalPercent !== null ? `${wifiSignalPercent}%` : 'Unavailable'}${activeAdapter?.signalDbm != null ? ` (${activeAdapter.signalDbm} dBm)` : ''}`}>
+                    {wifiSignalPercent !== null ? (
+                      <>
+                        <div className="flex items-end gap-[1.5px] h-2.5">
+                          {[1, 2, 3, 4].map(bar => {
+                            const isFilled = activeAdapter.status === 'connected' && wifiSignalPercent >= (bar * 25 - 15);
+                            return (
+                              <span
+                                key={bar}
+                                className={`w-[3px] rounded-xs transition-colors duration-200 ${
+                                  isFilled
+                                    ? wifiSignalPercent >= 65
+                                      ? 'bg-emerald-400'
+                                      : wifiSignalPercent >= 35
+                                      ? 'bg-amber-400'
+                                      : 'bg-rose-400'
+                                    : isLight ? 'bg-slate-300' : 'bg-slate-800'
+                                }`}
+                                style={{ height: `${bar * 25}%` }}
+                              />
+                            );
+                          })}
+                        </div>
+                        <span
+                          className={`text-[9px] font-mono font-bold ${
+                            activeAdapter.status !== 'connected'
+                              ? 'text-slate-400'
+                              : wifiSignalPercent >= 65
+                              ? 'text-emerald-500'
+                              : wifiSignalPercent >= 35
+                              ? 'text-amber-500'
+                              : 'text-rose-500'
+                          }`}
+                        >
+                          {activeAdapter.status === 'connected' ? `${wifiSignalPercent}%` : '0%'}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-[9px] font-mono text-slate-400 uppercase">
+                        {activeAdapter.status === 'connected' ? 'Connected' : 'Offline'}
+                      </span>
+                    )}
                   </div>
                 )}
                 {activeAdapter?.type !== 'wifi' && (
                   <span className={`text-[9px] font-mono uppercase shrink-0 px-1 py-0.2 rounded ${
                     isLight ? 'bg-slate-200/70 text-slate-600' : 'bg-slate-900 text-slate-500'
                   }`}>
-                    {activeAdapter?.speedMbps ? (activeAdapter.speedMbps >= 1000 ? '1 Gbps' : '100 Mbps') : 'Speed'}
+                    {activeAdapter?.speedMbps ? (activeAdapter.speedMbps >= 1000 ? '1 Gbps' : `${activeAdapter.speedMbps} Mbps`) : 'Speed'}
                   </span>
                 )}
               </div>
@@ -322,7 +328,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   }`}
                   title={
                     activeAdapter?.type === 'wifi'
-                      ? `SSID: ${activeAdapter.ssid || 'N/A'} · Signal: ${wifiSignalPercent}%${activeAdapter.signalDbm != null ? ` (${activeAdapter.signalDbm} dBm)` : ''} · Speed: ${activeAdapter.speedMbps || 866} Mbps`
+                      ? `SSID: ${activeAdapter.ssid || 'N/A'} · Signal: ${wifiSignalPercent !== null ? `${wifiSignalPercent}%` : 'N/A'}${activeAdapter.signalDbm != null ? ` (${activeAdapter.signalDbm} dBm)` : ''} · Speed: ${activeAdapter.speedMbps > 0 ? `${activeAdapter.speedMbps} Mbps` : 'N/A'}${activeAdapter.radioType ? ` · Radio: ${activeAdapter.radioType}` : ''}`
                       : activeAdapter?.speedMbps ? `${activeAdapter.speedMbps} Mbps (Full Duplex)` : '--'
                   }
                 >
@@ -330,7 +336,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     value={
                       activeAdapter?.type === 'wifi'
                         ? activeAdapter.status === 'connected'
-                          ? (activeAdapter.ssid || `${wifiSignalPercent}% Connected`)
+                          ? (activeAdapter.ssid || (wifiSignalPercent !== null ? `${wifiSignalPercent}% Signal` : 'Connected'))
                           : 'Disconnected'
                         : activeAdapter?.speedMbps ? `${activeAdapter.speedMbps} Mbps` : '--'
                     }

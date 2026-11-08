@@ -160,9 +160,10 @@ pub async fn system_tray_action(app: AppHandle, action: String) -> Result<bool, 
             .map_err(|error| format!("Tray monitoring worker failed: {error}"))?;
         }
         "quit" => {
-            tauri::async_runtime::spawn_blocking(
-                crate::monitoring::lifecycle::LifecycleManager::cleanup,
-            )
+            tauri::async_runtime::spawn_blocking(|| {
+                crate::monitoring::lifecycle::LifecycleManager::cleanup();
+                let _ = crate::bandwidth::WindowsQosManager::cleanup_all_netscope_rules();
+            })
             .await
             .map_err(|error| format!("Shutdown cleanup worker failed: {error}"))?;
             app.exit(0);
@@ -174,9 +175,12 @@ pub async fn system_tray_action(app: AppHandle, action: String) -> Result<bool, 
 
 #[command]
 pub async fn exit_app(app: AppHandle) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(crate::monitoring::lifecycle::LifecycleManager::cleanup)
-        .await
-        .map_err(|error| format!("Shutdown cleanup worker failed: {error}"))?;
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::monitoring::lifecycle::LifecycleManager::cleanup();
+        let _ = crate::bandwidth::WindowsQosManager::cleanup_all_netscope_rules();
+    })
+    .await
+    .map_err(|error| format!("Shutdown cleanup worker failed: {error}"))?;
     app.exit(0);
     Ok(())
 }
