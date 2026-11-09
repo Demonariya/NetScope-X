@@ -9,7 +9,16 @@ import {
   TrafficHistoryRecord,
   HistoryRange,
   AppSettings,
+  PingSessionRecord,
+  AppAccountingRecord,
+  AppSampleRecord,
 } from '../types/network';
+import {
+  DnsConfig,
+  DnsProfile,
+  DnsQueryResult,
+  DnsTestResult,
+} from '../types/dns';
 import {
   BandwidthConfig,
   BandwidthLimitRule,
@@ -91,6 +100,17 @@ async function handleWebSimulation<T>(cmd: string, args?: Record<string, unknown
     case 'clear_history':
       webSimulation.clearHistory();
       return Promise.resolve(true as unknown as T);
+    case 'delete_history_entry':
+      return Promise.resolve(
+        webSimulation.deleteHistoryEntry(args?.id as string) as unknown as T
+      );
+    case 'delete_history_range':
+      return Promise.resolve(
+        webSimulation.deleteHistoryRange(
+          args?.startDate as string,
+          args?.endDate as string
+        ) as unknown as T
+      );
     case 'system_tray_action':
       return Promise.resolve(true as unknown as T);
     case 'set_monitoring_enabled':
@@ -132,6 +152,72 @@ async function handleWebSimulation<T>(cmd: string, args?: Record<string, unknown
     case 'apply_bandwidth_profile':
       return Promise.resolve(
         webSimulation.applyBandwidthProfile(args?.profileId as string) as unknown as T
+      );
+    case 'get_dns_config':
+      return Promise.resolve(
+        webSimulation.getDnsConfig(args?.adapterAlias as string | undefined) as unknown as T
+      );
+    case 'set_dns_servers':
+      return Promise.resolve(
+        webSimulation.setDnsServers(
+          args?.adapterAlias as string,
+          args?.ipv4Servers as string[],
+          args?.ipv6Servers as string[] | undefined
+        ) as unknown as T
+      );
+    case 'reset_dns_dhcp':
+      return Promise.resolve(
+        webSimulation.resetDnsDhcp(args?.adapterAlias as string) as unknown as T
+      );
+    case 'flush_dns_cache':
+      return Promise.resolve(webSimulation.flushDnsCache() as unknown as T);
+    case 'resolve_dns_query':
+      return Promise.resolve(
+        webSimulation.resolveDnsQuery(
+          args?.host as string,
+          args?.recordType as string | undefined
+        ) as unknown as T
+      );
+    case 'test_dns_server':
+      return Promise.resolve(
+        webSimulation.testDnsServer(args?.serverIp as string) as unknown as T
+      );
+    case 'get_dns_profiles':
+      return Promise.resolve(webSimulation.getDnsProfiles() as unknown as T);
+    case 'save_dns_profile':
+      return Promise.resolve(
+        webSimulation.saveDnsProfile(args?.profile as DnsProfile) as unknown as T
+      );
+    case 'delete_dns_profile':
+      return Promise.resolve(
+        webSimulation.deleteDnsProfile(args?.profileId as string) as unknown as T
+      );
+    case 'save_ping_session':
+      return Promise.resolve(
+        webSimulation.savePingSession(args?.session as PingSessionRecord) as unknown as T
+      );
+    case 'get_ping_sessions':
+      return Promise.resolve(
+        webSimulation.getPingSessions(args?.limit as number | undefined) as unknown as T
+      );
+    case 'clear_ping_sessions':
+      return Promise.resolve(webSimulation.clearPingSessions() as unknown as T);
+    case 'delete_ping_session':
+      return Promise.resolve(
+        webSimulation.deletePingSession(args?.id as string) as unknown as T
+      );
+    case 'get_app_accounting_records':
+      return Promise.resolve(webSimulation.getAppAccountingRecords() as unknown as T);
+    case 'get_app_traffic_samples':
+      return Promise.resolve(
+        webSimulation.getAppTrafficSamples(
+          args?.appKey as string,
+          args?.limit as number | undefined
+        ) as unknown as T
+      );
+    case 'clear_app_accounting':
+      return Promise.resolve(
+        webSimulation.clearAppAccounting(args?.appKey as string | undefined) as unknown as T
       );
     default:
       return Promise.resolve({} as unknown as T);
@@ -271,6 +357,14 @@ export const api = {
     return { success };
   },
 
+  async deleteHistoryRecord(id: string): Promise<boolean> {
+    return nativeCommand<boolean>('delete_history_entry', { id });
+  },
+
+  async deleteHistoryRange(startDate: string, endDate: string): Promise<number> {
+    return nativeCommand<number>('delete_history_range', { startDate, endDate });
+  },
+
   async triggerTrayAction(action: 'minimize' | 'restore' | 'hide' | 'toggle_monitor' | 'quit'): Promise<{ success: boolean; state?: string }> {
     const success = await nativeCommand<boolean>('system_tray_action', { action });
     if (!success) throw new Error(`The native backend did not complete tray action "${action}".`);
@@ -363,5 +457,80 @@ export const api = {
       return webSimulation.toggleBandwidthPause(paused);
     }
     return false;
+  },
+
+  // DNS Management APIs
+  async getDnsConfig(adapterAlias?: string): Promise<DnsConfig> {
+    return nativeCommand<DnsConfig>('get_dns_config', { adapterAlias });
+  },
+
+  async setDnsServers(
+    adapterAlias: string,
+    ipv4Servers: string[],
+    ipv6Servers?: string[]
+  ): Promise<boolean> {
+    return nativeCommand<boolean>('set_dns_servers', {
+      adapterAlias,
+      ipv4Servers,
+      ipv6Servers,
+    });
+  },
+
+  async resetDnsDhcp(adapterAlias: string): Promise<boolean> {
+    return nativeCommand<boolean>('reset_dns_dhcp', { adapterAlias });
+  },
+
+  async flushDnsCache(): Promise<boolean> {
+    return nativeCommand<boolean>('flush_dns_cache');
+  },
+
+  async resolveDnsQuery(host: string, recordType = 'A'): Promise<DnsQueryResult> {
+    return nativeCommand<DnsQueryResult>('resolve_dns_query', { host, recordType });
+  },
+
+  async testDnsServer(serverIp: string): Promise<DnsTestResult> {
+    return nativeCommand<DnsTestResult>('test_dns_server', { serverIp });
+  },
+
+  async getDnsProfiles(): Promise<DnsProfile[]> {
+    return nativeCommand<DnsProfile[]>('get_dns_profiles');
+  },
+
+  async saveDnsProfile(profile: DnsProfile): Promise<boolean> {
+    return nativeCommand<boolean>('save_dns_profile', { profile });
+  },
+
+  async deleteDnsProfile(profileId: string): Promise<boolean> {
+    return nativeCommand<boolean>('delete_dns_profile', { profileId });
+  },
+
+  // Ping Sessions APIs
+  async savePingSession(session: PingSessionRecord): Promise<boolean> {
+    return nativeCommand<boolean>('save_ping_session', { session });
+  },
+
+  async getPingSessions(limit = 50): Promise<PingSessionRecord[]> {
+    return nativeCommand<PingSessionRecord[]>('get_ping_sessions', { limit });
+  },
+
+  async clearPingSessions(): Promise<boolean> {
+    return nativeCommand<boolean>('clear_ping_sessions');
+  },
+
+  async deletePingSession(id: string): Promise<boolean> {
+    return nativeCommand<boolean>('delete_ping_session', { id });
+  },
+
+  // Persistent Application Accounting APIs
+  async getAppAccountingRecords(): Promise<AppAccountingRecord[]> {
+    return nativeCommand<AppAccountingRecord[]>('get_app_accounting_records');
+  },
+
+  async getAppTrafficSamples(appKey: string, limit = 48): Promise<AppSampleRecord[]> {
+    return nativeCommand<AppSampleRecord[]>('get_app_traffic_samples', { appKey, limit });
+  },
+
+  async clearAppAccounting(appKey?: string): Promise<boolean> {
+    return nativeCommand<boolean>('clear_app_accounting', { appKey });
   },
 };

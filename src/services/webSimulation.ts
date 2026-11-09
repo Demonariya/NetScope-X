@@ -7,7 +7,16 @@ import {
   TrafficHistoryRecord,
   AppSettings,
   HistoryRange,
+  PingSessionRecord,
+  AppAccountingRecord,
+  AppSampleRecord,
 } from '../types/network';
+import {
+  DnsConfig,
+  DnsProfile,
+  DnsQueryResult,
+  DnsTestResult,
+} from '../types/dns';
 import {
   BandwidthConfig,
   BandwidthLimitRule,
@@ -31,6 +40,11 @@ const STORAGE_KEYS = {
   HISTORY: 'netscope_sim_history',
   SESSION_ACCUMULATOR: 'netscope_sim_session',
   BANDWIDTH_CONFIG: 'netscope_sim_bandwidth_config',
+  DNS_CONFIG: 'netscope_sim_dns_config',
+  DNS_PROFILES: 'netscope_sim_dns_profiles',
+  PING_SESSIONS: 'netscope_sim_ping_sessions',
+  APP_ACCOUNTING: 'netscope_sim_app_accounting',
+  APP_SAMPLES: 'netscope_sim_app_samples',
 };
 
 const memoryStorage = new Map<string, string>();
@@ -565,8 +579,8 @@ class SimulationState {
         const initial: TrafficHistoryRecord[] = [];
         const now = new Date();
         const topApps = ['Google Chrome', 'Discord', 'Spotify', 'Steam', 'System Process'];
-        // Generate past 7 days of hourly records
-        for (let day = 6; day >= 0; day--) {
+        // Generate past 35 days of hourly records
+        for (let day = 34; day >= 0; day--) {
           const dayDate = new Date(now.getTime() - day * 86400_000);
           const dateStr = dayDate.toISOString().split('T')[0];
           const maxHour = day === 0 ? now.getHours() : 23;
@@ -619,17 +633,47 @@ class SimulationState {
         const effectiveCustomEnd = customEnd && /^\d{4}-\d{2}-\d{2}/.test(customEnd) ? customEnd : undefined;
         const effectiveInterface = interfaceFilter || (!isSecondArgDate ? filterOrStart : undefined);
 
-        if (range === 'today') {
+        const dayOfWeek = now.getDay(); // 0 is Sunday, 1 is Monday...
+        const daysFromMonday = (dayOfWeek + 6) % 7;
+        const mondayTime = new Date(now.getTime() - daysFromMonday * 86400_000);
+        const mondayStr = mondayTime.toISOString().split('T')[0];
+
+        const firstOfThisMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+        const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+        const prevMonthNum = now.getMonth() === 0 ? 12 : now.getMonth();
+        const firstOfPrevMonthStr = `${prevMonthYear}-${String(prevMonthNum).padStart(2, '0')}-01`;
+        const lastDayOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+        const lastOfPrevMonthStr = lastDayOfPrevMonth.toISOString().split('T')[0];
+
+        if (range === '15m') {
+          const cutoff = now.getTime() - 15 * 60 * 1000;
+          all = all.filter(r => r.timestamp >= cutoff);
+        } else if (range === '1h') {
+          const cutoff = now.getTime() - 3600 * 1000;
+          all = all.filter(r => r.timestamp >= cutoff);
+        } else if (range === '6h') {
+          const cutoff = now.getTime() - 6 * 3600 * 1000;
+          all = all.filter(r => r.timestamp >= cutoff);
+        } else if (range === '24h') {
+          const cutoff = now.getTime() - 24 * 3600 * 1000;
+          all = all.filter(r => r.timestamp >= cutoff);
+        } else if (range === 'today') {
           all = all.filter(r => r.dateStr === todayStr);
         } else if (range === 'yesterday') {
           const yesterdayStr = new Date(now.getTime() - 86400_000).toISOString().split('T')[0];
           all = all.filter(r => r.dateStr === yesterdayStr);
+        } else if (range === 'this_week') {
+          all = all.filter(r => r.dateStr >= mondayStr);
         } else if (range === '7d') {
           const cutoff = new Date(now.getTime() - 6 * 86400_000).toISOString().split('T')[0];
           all = all.filter(r => r.dateStr >= cutoff);
         } else if (range === '30d') {
           const cutoff = new Date(now.getTime() - 29 * 86400_000).toISOString().split('T')[0];
           all = all.filter(r => r.dateStr >= cutoff);
+        } else if (range === 'this_month') {
+          all = all.filter(r => r.dateStr >= firstOfThisMonthStr);
+        } else if (range === 'prev_month') {
+          all = all.filter(r => r.dateStr >= firstOfPrevMonthStr && r.dateStr <= lastOfPrevMonthStr);
         } else if (range === 'custom') {
           if (effectiveCustomStart) {
             all = all.filter(r => r.dateStr >= effectiveCustomStart);
@@ -653,6 +697,33 @@ class SimulationState {
       }
     } catch {}
     return [];
+  }
+
+  deleteHistoryEntry(id: string): boolean {
+    try {
+      const raw = safeGetStorage(STORAGE_KEYS.HISTORY);
+      if (raw) {
+        const all: TrafficHistoryRecord[] = JSON.parse(raw);
+        const filtered = all.filter(r => r.id !== id);
+        safeSetStorage(STORAGE_KEYS.HISTORY, JSON.stringify(filtered));
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
+  deleteHistoryRange(startDate: string, endDate: string): number {
+    try {
+      const raw = safeGetStorage(STORAGE_KEYS.HISTORY);
+      if (raw) {
+        const all: TrafficHistoryRecord[] = JSON.parse(raw);
+        const kept = all.filter(r => r.dateStr < startDate || r.dateStr > endDate);
+        const deletedCount = all.length - kept.length;
+        safeSetStorage(STORAGE_KEYS.HISTORY, JSON.stringify(kept));
+        return deletedCount;
+      }
+    } catch {}
+    return 0;
   }
 
   clearHistory(): boolean {
@@ -938,6 +1009,400 @@ class SimulationState {
     } catch {
       return false;
     }
+  }
+
+  // --- DNS Management Simulation ---
+  getDnsProfiles(): DnsProfile[] {
+    const defaultProfiles: DnsProfile[] = [
+      {
+        id: 'preset_cloudflare',
+        name: 'Cloudflare DNS',
+        isPreset: true,
+        presetId: 'preset_cloudflare',
+        ipv4Primary: '1.1.1.1',
+        ipv4Secondary: '1.0.0.1',
+        ipv6Primary: '2606:4700:4700::1111',
+        ipv6Secondary: '2606:4700:4700::1001',
+        provider: 'Cloudflare',
+        createdAt: 1700000000000,
+      },
+      {
+        id: 'preset_google',
+        name: 'Google Public DNS',
+        isPreset: true,
+        presetId: 'preset_google',
+        ipv4Primary: '8.8.8.8',
+        ipv4Secondary: '8.8.4.4',
+        ipv6Primary: '2001:4860:4860::8888',
+        ipv6Secondary: '2001:4860:4860::8844',
+        provider: 'Google',
+        createdAt: 1700000000000,
+      },
+      {
+        id: 'preset_quad9',
+        name: 'Quad9 Secure DNS',
+        isPreset: true,
+        presetId: 'preset_quad9',
+        ipv4Primary: '9.9.9.9',
+        ipv4Secondary: '149.112.112.112',
+        ipv6Primary: '2620:fe::fe',
+        ipv6Secondary: '2620:fe::9',
+        provider: 'Quad9',
+        createdAt: 1700000000000,
+      },
+      {
+        id: 'preset_adguard',
+        name: 'AdGuard DNS (Default)',
+        isPreset: true,
+        presetId: 'preset_adguard',
+        ipv4Primary: '94.140.14.14',
+        ipv4Secondary: '94.140.15.15',
+        ipv6Primary: '2a10:50c0::ad1:ff',
+        ipv6Secondary: '2a10:50c0::ad2:ff',
+        provider: 'AdGuard',
+        createdAt: 1700000000000,
+      },
+      {
+        id: 'preset_opendns',
+        name: 'Cisco OpenDNS',
+        isPreset: true,
+        presetId: 'preset_opendns',
+        ipv4Primary: '208.67.222.222',
+        ipv4Secondary: '208.67.220.220',
+        ipv6Primary: '2620:119:35::35',
+        ipv6Secondary: '2620:119:53::53',
+        provider: 'Cisco',
+        createdAt: 1700000000000,
+      },
+    ];
+
+    try {
+      const saved = safeGetStorage(STORAGE_KEYS.DNS_PROFILES);
+      if (saved) {
+        const parsed = JSON.parse(saved) as DnsProfile[];
+        const custom = parsed.filter(p => !p.isPreset);
+        return [...defaultProfiles, ...custom];
+      }
+    } catch {}
+
+    return defaultProfiles;
+  }
+
+  saveDnsProfile(profile: DnsProfile): boolean {
+    const profiles = this.getDnsProfiles();
+    const existingIndex = profiles.findIndex(p => p.id === profile.id);
+    if (existingIndex >= 0) {
+      profiles[existingIndex] = profile;
+    } else {
+      profiles.push(profile);
+    }
+    safeSetStorage(STORAGE_KEYS.DNS_PROFILES, JSON.stringify(profiles));
+    return true;
+  }
+
+  deleteDnsProfile(profileId: string): boolean {
+    const profiles = this.getDnsProfiles();
+    const filtered = profiles.filter(p => p.id !== profileId || p.isPreset);
+    safeSetStorage(STORAGE_KEYS.DNS_PROFILES, JSON.stringify(filtered));
+    return true;
+  }
+
+  getDnsConfig(adapterAlias = 'Wi-Fi 6'): DnsConfig {
+    try {
+      const saved = safeGetStorage(STORAGE_KEYS.DNS_CONFIG);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {}
+
+    return {
+      adapterAlias: adapterAlias || 'Wi-Fi 6',
+      isDhcp: true,
+      ipv4Servers: ['1.1.1.1', '1.0.0.1'],
+      ipv6Servers: ['2606:4700:4700::1111', '2606:4700:4700::1001'],
+      status: 'configured',
+      responseTimeMs: 12.8,
+    };
+  }
+
+  setDnsServers(adapterAlias: string, ipv4Servers: string[], ipv6Servers?: string[]): boolean {
+    const config: DnsConfig = {
+      adapterAlias: adapterAlias || 'Wi-Fi 6',
+      isDhcp: false,
+      ipv4Servers,
+      ipv6Servers: ipv6Servers || ['2606:4700:4700::1111'],
+      status: 'configured',
+      responseTimeMs: Math.round(10 + Math.random() * 8),
+    };
+    safeSetStorage(STORAGE_KEYS.DNS_CONFIG, JSON.stringify(config));
+    return true;
+  }
+
+  resetDnsDhcp(adapterAlias: string): boolean {
+    const config: DnsConfig = {
+      adapterAlias: adapterAlias || 'Wi-Fi 6',
+      isDhcp: true,
+      ipv4Servers: ['192.168.1.1'],
+      ipv6Servers: [],
+      status: 'configured',
+      responseTimeMs: Math.round(3 + Math.random() * 4),
+    };
+    safeSetStorage(STORAGE_KEYS.DNS_CONFIG, JSON.stringify(config));
+    return true;
+  }
+
+  flushDnsCache(): boolean {
+    return true;
+  }
+
+  resolveDnsQuery(host: string, recordType = 'A'): DnsQueryResult {
+    const cleanHost = host.trim().toLowerCase();
+    const type = recordType.toUpperCase();
+    const latency = Math.round(8 + Math.random() * 15);
+
+    if (cleanHost === 'google.com') {
+      return {
+        query: host,
+        recordType: type,
+        records: type === 'AAAA' ? ['2607:f8b0:4004:c07::64'] : ['142.250.190.46', '142.250.190.78'],
+        responseTimeMs: latency,
+        status: 'success',
+      };
+    } else if (cleanHost === 'cloudflare.com') {
+      return {
+        query: host,
+        recordType: type,
+        records: type === 'AAAA' ? ['2606:4700::6810:85e5'] : ['104.16.132.229', '104.16.133.229'],
+        responseTimeMs: latency,
+        status: 'success',
+      };
+    } else if (cleanHost === 'quad9.net') {
+      return {
+        query: host,
+        recordType: type,
+        records: type === 'AAAA' ? ['2620:fe::9'] : ['9.9.9.9', '149.112.112.112'],
+        responseTimeMs: latency,
+        status: 'success',
+      };
+    }
+
+    // Default simulated resolution
+    return {
+      query: host,
+      recordType: type,
+      records: type === 'AAAA' ? ['2606:4700:4700::1111'] : ['104.21.54.12', '172.67.180.44'],
+      responseTimeMs: latency,
+      status: 'success',
+    };
+  }
+
+  testDnsServer(serverIp: string): DnsTestResult {
+    const ip = serverIp.trim();
+    const latencies: Record<string, number> = {
+      '1.1.1.1': 11.4,
+      '1.0.0.1': 12.1,
+      '8.8.8.8': 14.8,
+      '8.8.4.4': 15.2,
+      '9.9.9.9': 18.5,
+      '149.112.112.112': 19.1,
+      '94.140.14.14': 22.3,
+      '94.140.15.15': 23.0,
+      '208.67.222.222': 16.7,
+      '208.67.220.220': 17.2,
+    };
+
+    const base = latencies[ip] ?? Math.round(15 + Math.random() * 20);
+    return {
+      serverIp: ip,
+      reachable: true,
+      latencyMs: Math.round((base + (Math.random() * 2 - 1)) * 10) / 10,
+    };
+  }
+
+  // --- Ping Session Persistence Simulation ---
+  getPingSessions(limit = 50): PingSessionRecord[] {
+    try {
+      const saved = safeGetStorage(STORAGE_KEYS.PING_SESSIONS);
+      if (saved) {
+        const parsed: PingSessionRecord[] = JSON.parse(saved);
+        return parsed.slice(0, limit);
+      }
+    } catch {}
+
+    // Initial realistic ping session records
+    const initial: PingSessionRecord[] = [
+      {
+        id: 'ping_session_1',
+        target: '1.1.1.1',
+        host: '1.1.1.1',
+        startTime: Date.now() - 3600000,
+        endTime: Date.now() - 3540000,
+        totalRequests: 30,
+        successfulRequests: 30,
+        failedRequests: 0,
+        packetLossPercent: 0,
+        minLatencyMs: 10.2,
+        maxLatencyMs: 15.6,
+        avgLatencyMs: 12.4,
+        jitterMs: 1.2,
+      },
+      {
+        id: 'ping_session_2',
+        target: '8.8.8.8',
+        host: '8.8.8.8',
+        startTime: Date.now() - 7200000,
+        endTime: Date.now() - 7140000,
+        totalRequests: 30,
+        successfulRequests: 29,
+        failedRequests: 1,
+        packetLossPercent: 3.3,
+        minLatencyMs: 13.5,
+        maxLatencyMs: 24.1,
+        avgLatencyMs: 16.2,
+        jitterMs: 2.5,
+      },
+    ];
+    return initial;
+  }
+
+  savePingSession(session: PingSessionRecord): boolean {
+    const sessions = this.getPingSessions(100);
+    sessions.unshift(session);
+    safeSetStorage(STORAGE_KEYS.PING_SESSIONS, JSON.stringify(sessions.slice(0, 100)));
+    return true;
+  }
+
+  clearPingSessions(): boolean {
+    safeSetStorage(STORAGE_KEYS.PING_SESSIONS, JSON.stringify([]));
+    return true;
+  }
+
+  deletePingSession(id: string): boolean {
+    const sessions = this.getPingSessions(100).filter(s => s.id !== id);
+    safeSetStorage(STORAGE_KEYS.PING_SESSIONS, JSON.stringify(sessions));
+    return true;
+  }
+
+  // --- Persistent Per-Application Accounting Simulation ---
+  getAppAccountingRecords(): AppAccountingRecord[] {
+    try {
+      const saved = safeGetStorage(STORAGE_KEYS.APP_ACCOUNTING);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {}
+
+    const initial: AppAccountingRecord[] = [
+      {
+        appKey: 'c:\\program files\\google\\chrome\\application\\chrome.exe',
+        exeName: 'chrome.exe',
+        friendlyName: 'Google Chrome',
+        fullPath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        firstSeen: Date.now() - 86400000 * 7,
+        lastSeen: Date.now(),
+        lifetimeDownloadBytes: 4_280_000_000,
+        lifetimeUploadBytes: 420_000_000,
+        lifetimeTotalBytes: 4_700_000_000,
+        isRunning: true,
+        currentPid: 12408,
+        currentDownloadBps: 245_000,
+        currentUploadBps: 18_000,
+      },
+      {
+        appKey: 'c:\\program files\\microsoft visual studio\\2022\\community\\devenv.exe',
+        exeName: 'devenv.exe',
+        friendlyName: 'Microsoft Visual Studio',
+        fullPath: 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\devenv.exe',
+        firstSeen: Date.now() - 86400000 * 5,
+        lastSeen: Date.now() - 1800000,
+        lifetimeDownloadBytes: 1_850_000_000,
+        lifetimeUploadBytes: 195_000_000,
+        lifetimeTotalBytes: 2_045_000_000,
+        isRunning: true,
+        currentPid: 9840,
+        currentDownloadBps: 0,
+        currentUploadBps: 0,
+      },
+      {
+        appKey: 'c:\\users\\demon\\appdata\\local\\programs\\discord\\discord.exe',
+        exeName: 'Discord.exe',
+        friendlyName: 'Discord',
+        fullPath: 'C:\\Users\\demon\\AppData\\Local\\Programs\\Discord\\Discord.exe',
+        firstSeen: Date.now() - 86400000 * 14,
+        lastSeen: Date.now(),
+        lifetimeDownloadBytes: 980_000_000,
+        lifetimeUploadBytes: 140_000_000,
+        lifetimeTotalBytes: 1_120_000_000,
+        isRunning: true,
+        currentPid: 6732,
+        currentDownloadBps: 34_000,
+        currentUploadBps: 12_000,
+      },
+      {
+        appKey: 'c:\\program files\\steam\\steam.exe',
+        exeName: 'steam.exe',
+        friendlyName: 'Steam Client Bootstrapper',
+        fullPath: 'C:\\Program Files\\Steam\\steam.exe',
+        firstSeen: Date.now() - 86400000 * 10,
+        lastSeen: Date.now() - 3600000 * 4,
+        lifetimeDownloadBytes: 14_800_000_000,
+        lifetimeUploadBytes: 310_000_000,
+        lifetimeTotalBytes: 15_110_000_000,
+        isRunning: false,
+        currentPid: undefined,
+        currentDownloadBps: 0,
+        currentUploadBps: 0,
+      },
+      {
+        appKey: 'c:\\program files\\spotify\\spotify.exe',
+        exeName: 'Spotify.exe',
+        friendlyName: 'Spotify Music',
+        fullPath: 'C:\\Program Files\\Spotify\\Spotify.exe',
+        firstSeen: Date.now() - 86400000 * 6,
+        lastSeen: Date.now(),
+        lifetimeDownloadBytes: 850_000_000,
+        lifetimeUploadBytes: 25_000_000,
+        lifetimeTotalBytes: 875_000_000,
+        isRunning: true,
+        currentPid: 14920,
+        currentDownloadBps: 110_000,
+        currentUploadBps: 3_500,
+      },
+    ];
+
+    safeSetStorage(STORAGE_KEYS.APP_ACCOUNTING, JSON.stringify(initial));
+    return initial;
+  }
+
+  getAppTrafficSamples(appKey: string, limit = 48): AppSampleRecord[] {
+    const samples: AppSampleRecord[] = [];
+    const now = Date.now();
+    for (let i = 0; i < Math.min(limit, 24); i++) {
+      const time = now - i * 3600000;
+      const d = new Date(time);
+      const dateStr = d.toISOString().split('T')[0];
+      const hourStr = `${String(d.getHours()).padStart(2, '0')}:00`;
+      samples.push({
+        id: `${appKey}_${time}`,
+        appKey,
+        timestamp: time,
+        dateStr,
+        hourStr,
+        downloadBytes: Math.floor(10_000_000 + Math.random() * 40_000_000),
+        uploadBytes: Math.floor(1_000_000 + Math.random() * 5_000_000),
+      });
+    }
+    return samples;
+  }
+
+  clearAppAccounting(appKey?: string): boolean {
+    if (appKey) {
+      const records = this.getAppAccountingRecords().filter(r => r.appKey !== appKey);
+      safeSetStorage(STORAGE_KEYS.APP_ACCOUNTING, JSON.stringify(records));
+    } else {
+      safeSetStorage(STORAGE_KEYS.APP_ACCOUNTING, JSON.stringify([]));
+    }
+    return true;
   }
 }
 

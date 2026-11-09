@@ -17,16 +17,54 @@ fn history_database_path(app: &AppHandle) -> Result<std::path::PathBuf, String> 
 pub async fn get_traffic_history(
     app: AppHandle,
     range: Option<String>,
+    custom_start: Option<String>,
+    custom_end: Option<String>,
+    interface_filter: Option<String>,
 ) -> Result<Vec<TrafficHistoryEntry>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let db_path = history_database_path(&app)?;
         Database::with_shared(&db_path, |conn| {
-            HistoryStorage::get_history(conn, range.as_deref().unwrap_or("today"))
+            HistoryStorage::get_history(
+                conn,
+                range.as_deref().unwrap_or("today"),
+                custom_start.as_deref(),
+                custom_end.as_deref(),
+                interface_filter.as_deref(),
+            )
         })
         .map_err(|error| format!("Cannot read traffic history: {error}"))
     })
     .await
     .map_err(|error| format!("Traffic history worker failed: {error}"))?
+}
+
+#[command]
+pub async fn delete_history_entry(app: AppHandle, id: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db_path = history_database_path(&app)?;
+        Database::with_shared(&db_path, |conn| HistoryStorage::delete_entry(conn, &id))
+            .map_err(|error| format!("Cannot delete history entry: {error}"))?;
+        Ok(true)
+    })
+    .await
+    .map_err(|error| format!("History delete worker failed: {error}"))?
+}
+
+#[command]
+pub async fn delete_history_range(
+    app: AppHandle,
+    start_date: String,
+    end_date: String,
+) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db_path = history_database_path(&app)?;
+        Database::with_shared(&db_path, |conn| {
+            HistoryStorage::delete_range(conn, &start_date, &end_date)
+        })
+        .map_err(|error| format!("Cannot delete history date range: {error}"))
+    })
+    .await
+    .map_err(|error| format!("History delete range worker failed: {error}"))?
 }
 
 #[command]
@@ -46,11 +84,20 @@ pub async fn export_traffic_history(
     app: AppHandle,
     format: String,
     range: Option<String>,
+    custom_start: Option<String>,
+    custom_end: Option<String>,
+    interface_filter: Option<String>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let db_path = history_database_path(&app)?;
         let entries = Database::with_shared(&db_path, |conn| {
-            HistoryStorage::get_history(conn, range.as_deref().unwrap_or("today"))
+            HistoryStorage::get_history(
+                conn,
+                range.as_deref().unwrap_or("today"),
+                custom_start.as_deref(),
+                custom_end.as_deref(),
+                interface_filter.as_deref(),
+            )
         })
         .map_err(|error| format!("Cannot read traffic history for export: {error}"))?;
         match format.as_str() {

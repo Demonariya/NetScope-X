@@ -109,7 +109,20 @@ export interface ProcessNetworkUsage {
   connections: SocketConnection[];
 }
 
-export type HistoryRange = 'today' | 'yesterday' | '7d' | '30d' | 'all' | 'custom';
+export type HistoryRange =
+  | '15m'
+  | '1h'
+  | '6h'
+  | '24h'
+  | 'today'
+  | 'yesterday'
+  | 'this_week'
+  | '7d'
+  | '30d'
+  | 'this_month'
+  | 'prev_month'
+  | 'all'
+  | 'custom';
 
 export interface TrafficHistoryRecord {
   id: string;
@@ -145,6 +158,48 @@ export interface AppSettings {
     theme: 'dark' | 'light' | 'system';
     accentColor: string;
   };
+}
+
+export interface PingSessionRecord {
+  id: string;
+  target: string;
+  host: string;
+  startTime: number;
+  endTime: number;
+  totalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
+  packetLossPercent: number;
+  minLatencyMs: number;
+  maxLatencyMs: number;
+  avgLatencyMs: number;
+  jitterMs: number;
+}
+
+export interface AppAccountingRecord {
+  appKey: string;
+  exeName: string;
+  friendlyName: string;
+  fullPath: string;
+  firstSeen: number;
+  lastSeen: number;
+  lifetimeDownloadBytes: number;
+  lifetimeUploadBytes: number;
+  lifetimeTotalBytes: number;
+  isRunning?: boolean;
+  currentPid?: number;
+  currentDownloadBps?: number;
+  currentUploadBps?: number;
+}
+
+export interface AppSampleRecord {
+  id: string;
+  appKey: string;
+  timestamp: number;
+  dateStr: string;
+  hourStr: string;
+  downloadBytes: number;
+  uploadBytes: number;
 }
 
 export type CanvasMode = 'portrait_9_16';

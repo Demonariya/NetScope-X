@@ -15,48 +15,118 @@ pub struct TrafficHistoryEntry {
 
 pub struct HistoryStorage;
 
-fn earliest_date(range: &str, today: chrono::NaiveDate) -> chrono::NaiveDate {
-    match range {
-        "today" => today,
-        "7d" => today - chrono::Duration::days(6),
-        "30d" => today - chrono::Duration::days(29),
-        _ => chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("valid epoch date"),
-    }
-}
-
 impl HistoryStorage {
-    pub fn get_history(conn: &Connection, range: &str) -> Result<Vec<TrafficHistoryEntry>> {
-        let today = chrono::Local::now().date_naive();
+    pub fn get_history(
+        conn: &Connection,
+        range: &str,
+        custom_start: Option<&str>,
+        custom_end: Option<&str>,
+        interface_filter: Option<&str>,
+    ) -> Result<Vec<TrafficHistoryEntry>> {
+        use chrono::Datelike;
+        let now = chrono::Local::now();
+        let today = now.date_naive();
 
-        if range == "yesterday" {
-            let yesterday = (today - chrono::Duration::days(1))
-                .format("%Y-%m-%d")
-                .to_string();
-            let mut stmt = conn.prepare(
-                "SELECT id, timestamp, date_str, hour_str, download_bytes, upload_bytes, top_app
-                 FROM hourly_traffic WHERE date_str = ?1 ORDER BY timestamp ASC",
-            )?;
-            let rows = stmt.query_map([yesterday], |row| {
-                Ok(TrafficHistoryEntry {
-                    id: row.get(0)?,
-                    timestamp: row.get(1)?,
-                    date_str: row.get(2)?,
-                    hour_str: row.get(3)?,
-                    download_bytes: row.get(4)?,
-                    upload_bytes: row.get(5)?,
-                    top_app: row.get(6)?,
-                })
-            })?;
-            return rows.collect();
+        let mut query = String::from(
+            "SELECT id, timestamp, date_str, hour_str, download_bytes, upload_bytes, top_app
+             FROM hourly_traffic WHERE 1=1",
+        );
+        let mut params: Vec<rusqlite::types::Value> = Vec::new();
+
+        match range {
+            "15m" => {
+                let cutoff = now.timestamp().saturating_sub(15 * 60) as u64;
+                query.push_str(" AND timestamp >= ?");
+                params.push(rusqlite::types::Value::Integer(cutoff as i64));
+            }
+            "1h" => {
+                let cutoff = now.timestamp().saturating_sub(3600) as u64;
+                query.push_str(" AND timestamp >= ?");
+                params.push(rusqlite::types::Value::Integer(cutoff as i64));
+            }
+            "6h" => {
+                let cutoff = now.timestamp().saturating_sub(6 * 3600) as u64;
+                query.push_str(" AND timestamp >= ?");
+                params.push(rusqlite::types::Value::Integer(cutoff as i64));
+            }
+            "24h" => {
+                let cutoff = now.timestamp().saturating_sub(24 * 3600) as u64;
+                query.push_str(" AND timestamp >= ?");
+                params.push(rusqlite::types::Value::Integer(cutoff as i64));
+            }
+            "today" => {
+                query.push_str(" AND date_str = ?");
+                params.push(rusqlite::types::Value::Text(today.format("%Y-%m-%d").to_string()));
+            }
+            "yesterday" => {
+                let yesterday = (today - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+                query.push_str(" AND date_str = ?");
+                params.push(rusqlite::types::Value::Text(yesterday));
+            }
+            "this_week" => {
+                let days_from_monday = today.weekday().num_days_from_monday();
+                let monday = (today - chrono::Duration::days(days_from_monday as i64)).format("%Y-%m-%d").to_string();
+                query.push_str(" AND date_str >= ?");
+                params.push(rusqlite::types::Value::Text(monday));
+            }
+            "7d" => {
+                let earliest = (today - chrono::Duration::days(6)).format("%Y-%m-%d").to_string();
+                query.push_str(" AND date_str >= ?");
+                params.push(rusqlite::types::Value::Text(earliest));
+            }
+            "30d" => {
+                let earliest = (today - chrono::Duration::days(29)).format("%Y-%m-%d").to_string();
+                query.push_str(" AND date_str >= ?");
+                params.push(rusqlite::types::Value::Text(earliest));
+            }
+            "this_month" => {
+                let first_of_month = format!("{}-{:02}-01", today.year(), today.month());
+                query.push_str(" AND date_str >= ?");
+                params.push(rusqlite::types::Value::Text(first_of_month));
+            }
+            "prev_month" => {
+                let (prev_year, prev_month) = if today.month() == 1 {
+                    (today.year() - 1, 12)
+                } else {
+                    (today.year(), today.month() - 1)
+                };
+                let first_of_prev = format!("{}-{:02}-01", prev_year, prev_month);
+                let first_of_curr = chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
+                let last_of_prev = (first_of_curr - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+                query.push_str(" AND date_str >= ? AND date_str <= ?");
+                params.push(rusqlite::types::Value::Text(first_of_prev));
+                params.push(rusqlite::types::Value::Text(last_of_prev));
+            }
+            "custom" => {
+                if let Some(start) = custom_start {
+                    if !start.is_empty() {
+                        query.push_str(" AND date_str >= ?");
+                        params.push(rusqlite::types::Value::Text(start.to_string()));
+                    }
+                }
+                if let Some(end) = custom_end {
+                    if !end.is_empty() {
+                        query.push_str(" AND date_str <= ?");
+                        params.push(rusqlite::types::Value::Text(end.to_string()));
+                    }
+                }
+            }
+            _ => {
+                // "all" or any other value: no date restriction
+            }
         }
 
-        let earliest = earliest_date(range, today).format("%Y-%m-%d").to_string();
+        if let Some(iface) = interface_filter {
+            if iface != "all" && iface != "All Interfaces" && !iface.trim().is_empty() {
+                query.push_str(" AND top_app LIKE ?");
+                params.push(rusqlite::types::Value::Text(format!("%{}%", iface.trim())));
+            }
+        }
 
-        let mut stmt = conn.prepare(
-            "SELECT id, timestamp, date_str, hour_str, download_bytes, upload_bytes, top_app
-             FROM hourly_traffic WHERE date_str >= ?1 ORDER BY timestamp ASC",
-        )?;
-        let rows = stmt.query_map([earliest], |row| {
+        query.push_str(" ORDER BY timestamp ASC");
+
+        let mut stmt = conn.prepare(&query)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
             Ok(TrafficHistoryEntry {
                 id: row.get(0)?,
                 timestamp: row.get(1)?,
@@ -68,6 +138,19 @@ impl HistoryStorage {
             })
         })?;
         rows.collect()
+    }
+
+    /// Delete a single hourly traffic entry by ID.
+    pub fn delete_entry(conn: &Connection, id: &str) -> Result<usize> {
+        conn.execute("DELETE FROM hourly_traffic WHERE id = ?1", [id])
+    }
+
+    /// Delete hourly records between start and end date inclusive.
+    pub fn delete_range(conn: &Connection, start_date: &str, end_date: &str) -> Result<usize> {
+        conn.execute(
+            "DELETE FROM hourly_traffic WHERE date_str >= ?1 AND date_str <= ?2",
+            [start_date, end_date],
+        )
     }
 
     /// Delete hourly records older than the configured retention cutoff date.
@@ -98,7 +181,7 @@ impl HistoryStorage {
 
 #[cfg(test)]
 mod tests {
-    use super::{earliest_date, HistoryStorage, TrafficHistoryEntry};
+    use super::{HistoryStorage, TrafficHistoryEntry};
     use crate::storage::migrations::apply_migrations;
     use rusqlite::Connection;
 
@@ -126,23 +209,15 @@ mod tests {
             .expect("history row should be inserted");
         }
 
-        let yesterday = HistoryStorage::get_history(&connection, "yesterday")
+        let yesterday = HistoryStorage::get_history(&connection, "yesterday", None, None, None)
             .expect("yesterday query should succeed");
         let seven_days =
-            HistoryStorage::get_history(&connection, "7d").expect("seven-day query should succeed");
-        let thirty_days = HistoryStorage::get_history(&connection, "30d")
+            HistoryStorage::get_history(&connection, "7d", None, None, None).expect("seven-day query should succeed");
+        let thirty_days = HistoryStorage::get_history(&connection, "30d", None, None, None)
             .expect("thirty-day query should succeed");
 
         assert_eq!(yesterday.len(), 1);
         assert_eq!(seven_days.len(), 3);
         assert_eq!(thirty_days.len(), 5);
-        assert_eq!(
-            earliest_date("7d", today),
-            today - chrono::Duration::days(6)
-        );
-        assert_eq!(
-            earliest_date("30d", today),
-            today - chrono::Duration::days(29)
-        );
     }
 }

@@ -23,8 +23,22 @@ import {
   Zap,
   Sparkles,
   Activity,
+  Info,
+  Clock,
+  HardDrive,
+  Copy,
+  Trash2,
 } from 'lucide-react';
-import { ProcessNetworkUsage, SocketConnection } from '../../types/network';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import { ProcessNetworkUsage, SocketConnection, AppAccountingRecord, AppSampleRecord } from '../../types/network';
+import { api } from '../../services/api';
 import {
   BandwidthConfig,
   BandwidthLimitRule,
@@ -71,6 +85,12 @@ export interface GroupedApplication {
   totalBytes: number;
   sessionDownloadBytes: number;
   sessionUploadBytes: number;
+  lifetimeDownloadBytes?: number;
+  lifetimeUploadBytes?: number;
+  lifetimeTotalBytes?: number;
+  firstSeen?: number;
+  lastSeen?: number;
+  startTime?: number;
   connectionCount: number;
   isBlocked: boolean;
   trafficAvailable: boolean;
@@ -116,6 +136,42 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
   const [modalUpUnit, setModalUpUnit] = useState<BandwidthUnit>('KB/s');
   const [modalPriority, setModalPriority] = useState<ApplicationPriority>('Normal');
 
+  // Persistent Accounting & Detail Modal State
+  const [accountingRecords, setAccountingRecords] = useState<AppAccountingRecord[]>([]);
+  const [selectedDetailApp, setSelectedDetailApp] = useState<GroupedApplication | null>(null);
+  const [detailSamples, setDetailSamples] = useState<AppSampleRecord[]>([]);
+  const [isLoadingSamples, setIsLoadingSamples] = useState(false);
+  const [copiedPath, setCopiedPath] = useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api.getAppAccountingRecords()
+      .then(records => {
+        if (!cancelled) setAccountingRecords(records);
+      })
+      .catch(err => console.warn('Could not load app accounting records:', err));
+    return () => { cancelled = true; };
+  }, [processes]);
+
+  React.useEffect(() => {
+    if (!selectedDetailApp) {
+      setDetailSamples([]);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingSamples(true);
+    const key = selectedDetailApp.fullPath || selectedDetailApp.exeName;
+    api.getAppTrafficSamples(key)
+      .then(samples => {
+        if (!cancelled) setDetailSamples(samples);
+      })
+      .catch(err => console.warn('Could not load samples for app:', err))
+      .finally(() => {
+        if (!cancelled) setIsLoadingSamples(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedDetailApp]);
+
   const isLight =
     currentTheme === 'light' ||
     (currentTheme === 'system' &&
@@ -143,27 +199,42 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
 
   // Group multiple instances of the same executable into a unified application entry
   const groupedApplications = useMemo<GroupedApplication[]>(() => {
+    const accountingMap = new Map<string, AppAccountingRecord>();
+    for (const rec of accountingRecords) {
+      if (rec.fullPath) accountingMap.set(rec.fullPath.toLowerCase().trim(), rec);
+      if (rec.exeName) accountingMap.set(rec.exeName.toLowerCase().trim(), rec);
+    }
+
     if (!isGrouped) {
       // Return individual processes wrapped as 1-instance groups
-      return processes.map(proc => ({
-        id: `proc_${proc.pid}`,
-        exeName: proc.exeName || proc.name,
-        friendlyName: proc.friendlyName || proc.exeName || proc.name,
-        fullPath: proc.fullPath || '',
-        icon: proc.icon,
-        instanceCount: 1,
-        instances: [proc],
-        downloadBps: proc.downloadBps,
-        uploadBps: proc.uploadBps,
-        totalBytes: proc.totalBytes,
-        sessionDownloadBytes: proc.sessionDownloadBytes,
-        sessionUploadBytes: proc.sessionUploadBytes,
-        connectionCount: proc.connectionCount,
-        isBlocked: !!proc.isBlocked,
-        trafficAvailable: proc.trafficAvailable ?? false,
-        primaryPid: proc.pid,
-        connections: (proc.connections || []).map(conn => ({ ...conn, processId: proc.pid })),
-      }));
+      return processes.map(proc => {
+        const acc = accountingMap.get(proc.fullPath?.toLowerCase().trim()) || accountingMap.get(proc.exeName.toLowerCase().trim());
+        return {
+          id: `proc_${proc.pid}`,
+          exeName: proc.exeName || proc.name,
+          friendlyName: proc.friendlyName || proc.exeName || proc.name,
+          fullPath: proc.fullPath || '',
+          icon: proc.icon,
+          instanceCount: 1,
+          instances: [proc],
+          downloadBps: proc.downloadBps,
+          uploadBps: proc.uploadBps,
+          totalBytes: proc.totalBytes,
+          sessionDownloadBytes: proc.sessionDownloadBytes,
+          sessionUploadBytes: proc.sessionUploadBytes,
+          lifetimeDownloadBytes: acc?.lifetimeDownloadBytes,
+          lifetimeUploadBytes: acc?.lifetimeUploadBytes,
+          lifetimeTotalBytes: acc?.lifetimeTotalBytes,
+          firstSeen: acc?.firstSeen,
+          lastSeen: acc?.lastSeen,
+          startTime: proc.startTime,
+          connectionCount: proc.connectionCount,
+          isBlocked: !!proc.isBlocked,
+          trafficAvailable: proc.trafficAvailable ?? false,
+          primaryPid: proc.pid,
+          connections: (proc.connections || []).map(conn => ({ ...conn, processId: proc.pid })),
+        };
+      });
     }
 
     const map = new Map<string, GroupedApplication>();
@@ -227,8 +298,19 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
       }
     }
 
-    // Propagate group icon to child instances if missing, and sort
+    // Propagate group icon to child instances if missing, attach accounting, and sort
     for (const group of map.values()) {
+      const acc = accountingMap.get(group.fullPath?.toLowerCase().trim()) || accountingMap.get(group.exeName.toLowerCase().trim());
+      if (acc) {
+        group.lifetimeDownloadBytes = acc.lifetimeDownloadBytes;
+        group.lifetimeUploadBytes = acc.lifetimeUploadBytes;
+        group.lifetimeTotalBytes = acc.lifetimeTotalBytes;
+        group.firstSeen = acc.firstSeen;
+        group.lastSeen = acc.lastSeen;
+      }
+      if (group.instances.length > 0) {
+        group.startTime = group.instances[0].startTime;
+      }
       if (group.icon) {
         for (const inst of group.instances) {
           if (!inst.icon) inst.icon = group.icon;
@@ -240,7 +322,7 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
     }
 
     return Array.from(map.values());
-  }, [processes, isGrouped]);
+  }, [processes, isGrouped, accountingRecords]);
 
   const blockedCount = useMemo(() => {
     return groupedApplications.filter(g => g.isBlocked).length;
@@ -745,6 +827,17 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
                       <button
                         onClick={e => {
                           e.stopPropagation();
+                          setSelectedDetailApp(app);
+                        }}
+                        title={`View Application Detail & Lifetime Accounting for ${app.friendlyName}`}
+                        className="p-1 rounded text-slate-400 hover:text-sky-300 hover:bg-slate-800 transition-colors cursor-pointer"
+                      >
+                        <Info className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
                           onToggleBlock(app.exeName, !isBlocked, app.primaryPid);
                         }}
                         title={
@@ -834,6 +927,16 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
                         }`}
                       >
                         {isBlocked ? 'Restricted' : app.connectionCount}
+                      </span>
+                    </div>
+
+                    <div className="col-span-2 px-2 py-1.5 rounded bg-slate-950/70 border border-slate-800/60 flex items-center justify-between text-[11px]">
+                      <span className="text-[10px] text-slate-400 uppercase font-sans flex items-center gap-1">
+                        <HardDrive className="w-3 h-3 text-sky-400" />
+                        <span>Lifetime Persistent Total</span>
+                      </span>
+                      <span className="font-semibold text-sky-300 font-mono">
+                        {formatBytes(app.lifetimeTotalBytes || app.totalBytes)}
                       </span>
                     </div>
                   </div>
@@ -1320,6 +1423,303 @@ export const ApplicationsTab: React.FC<ApplicationsTabProps> = ({
                   >
                     <Check className="w-3.5 h-3.5" />
                     <span>Apply Policy</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Application Detail & Lifetime Accounting Modal */}
+      <AnimatePresence>
+        {selectedDetailApp && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/70 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className={`w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5 rounded-2xl border shadow-2xl flex flex-col gap-4 ${
+                isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-100'
+              }`}
+            >
+              {/* Modal Header */}
+              <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-3 min-w-0">
+                  <ProcessIcon
+                    exeName={selectedDetailApp.exeName}
+                    icon={selectedDetailApp.icon}
+                    containerClassName="w-12 h-12 rounded-xl bg-slate-950 p-1.5 border border-slate-800 shrink-0 flex items-center justify-center"
+                    className="w-8 h-8"
+                  />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-base font-bold truncate">
+                        {selectedDetailApp.friendlyName}
+                      </h3>
+                      {selectedDetailApp.isBlocked && (
+                        <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-bold uppercase">
+                          Firewall Blocked
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400 font-mono mt-0.5">
+                      {selectedDetailApp.exeName} · PID {selectedDetailApp.primaryPid}
+                      {selectedDetailApp.instanceCount > 1 && ` (${selectedDetailApp.instanceCount} instances)`}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setSelectedDetailApp(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 cursor-pointer text-lg leading-none"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Full Path Bar */}
+              {selectedDetailApp.fullPath && (
+                <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+                  <span className="font-mono text-slate-400 truncate flex-1 mr-2">
+                    {selectedDetailApp.fullPath}
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(selectedDetailApp.fullPath);
+                      setCopiedPath(true);
+                      setTimeout(() => setCopiedPath(false), 2000);
+                    }}
+                    className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>{copiedPath ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Process Metadata & Stable Identity */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-sans">
+                    Primary PID
+                  </span>
+                  <span className="text-xs font-mono font-bold text-slate-200 mt-0.5 block">
+                    {selectedDetailApp.primaryPid}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-sans">
+                    Creation Time
+                  </span>
+                  <span className="text-xs font-mono text-slate-200 mt-0.5 block truncate">
+                    {selectedDetailApp.startTime
+                      ? new Date(selectedDetailApp.startTime).toLocaleTimeString()
+                      : 'Active'}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-sans">
+                    First Seen
+                  </span>
+                  <span className="text-xs font-mono text-slate-200 mt-0.5 block truncate">
+                    {selectedDetailApp.firstSeen
+                      ? new Date(selectedDetailApp.firstSeen).toLocaleDateString()
+                      : 'Today'}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-sans">
+                    Last Active
+                  </span>
+                  <span className="text-xs font-mono text-slate-200 mt-0.5 block truncate">
+                    {selectedDetailApp.lastSeen
+                      ? new Date(selectedDetailApp.lastSeen).toLocaleTimeString()
+                      : 'Now'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Live Throughput & Accounting Statistics */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Live Speed Tile */}
+                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase">
+                    <span>Live Throughput</span>
+                    <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Download</span>
+                      <span className="font-bold text-sky-400 text-sm">
+                        {formatSpeed(selectedDetailApp.downloadBps).full}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Upload</span>
+                      <span className="font-bold text-teal-400 text-sm">
+                        {formatSpeed(selectedDetailApp.uploadBps).full}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="pt-1 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+                    <span>Session Transferred</span>
+                    <span className="font-mono text-slate-200 font-semibold">
+                      {formatBytes(selectedDetailApp.totalBytes)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Lifetime Accounting Tile */}
+                <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase">
+                    <span>Lifetime Accounting (SQLite)</span>
+                    <HardDrive className="w-3.5 h-3.5 text-sky-400" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Total Inbound</span>
+                      <span className="font-semibold text-slate-200">
+                        {formatBytes(selectedDetailApp.lifetimeDownloadBytes || selectedDetailApp.sessionDownloadBytes)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Total Outbound</span>
+                      <span className="font-semibold text-slate-200">
+                        {formatBytes(selectedDetailApp.lifetimeUploadBytes || selectedDetailApp.sessionUploadBytes)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="pt-1 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Cumulative Total</span>
+                    <span className="font-mono text-sky-400 font-bold">
+                      {formatBytes(selectedDetailApp.lifetimeTotalBytes || selectedDetailApp.totalBytes)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Historical Traffic Samples Chart */}
+              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase">
+                  <span>Recent Traffic History</span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {detailSamples.length > 0 ? `${detailSamples.length} samples` : 'Simulated / ETW'}
+                  </span>
+                </div>
+                <div className="h-28 w-full min-w-0">
+                  {detailSamples.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={detailSamples.slice(0, 16).reverse().map(s => ({
+                          time: s.hourStr,
+                          downMb: Number((s.downloadBytes / (1024 * 1024)).toFixed(1)),
+                          upMb: Number((s.uploadBytes / (1024 * 1024)).toFixed(1)),
+                        }))}
+                        margin={{ top: 2, right: 2, left: -20, bottom: 0 }}
+                      >
+                        <XAxis dataKey="time" stroke="#475569" fontSize={9} tickLine={false} />
+                        <YAxis stroke="#475569" fontSize={9} tickLine={false} />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: '#090d16',
+                            borderColor: '#334155',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                          }}
+                          formatter={(v: any, name: any) => [`${v} MB`, name === 'downMb' ? 'Down' : 'Up']}
+                        />
+                        <Area type="monotone" dataKey="downMb" stroke="#38bdf8" fill="#38bdf8" fillOpacity={0.2} isAnimationActive={false} />
+                        <Area type="monotone" dataKey="upMb" stroke="#2dd4bf" fill="#2dd4bf" fillOpacity={0.2} isAnimationActive={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-xs text-slate-400 italic">
+                      {isLoadingSamples ? 'Loading traffic samples...' : 'Continuous traffic tracking is active for this process.'}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Live Sockets Table */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase">
+                  <span>Active Socket Connections ({selectedDetailApp.connections.length})</span>
+                </div>
+                {selectedDetailApp.connections.length > 0 ? (
+                  <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-800 divide-y divide-slate-800/60 font-mono text-[11px]">
+                    {selectedDetailApp.connections.slice(0, 8).map((conn, i) => (
+                      <div key={i} className="p-1.5 px-2 bg-slate-950 flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="text-[10px] font-bold text-sky-400">{conn.protocol}</span>
+                          <span className="text-slate-400 truncate">
+                            {conn.remoteAddress}:{conn.remotePort}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-sans px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800">
+                          {conn.state}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-3 text-center text-xs text-slate-400 italic rounded-lg border border-dashed border-slate-800">
+                    No open socket connections at this moment.
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const key = selectedDetailApp.fullPath || selectedDetailApp.exeName;
+                    await api.clearAppAccounting(key);
+                    setAccountingRecords(await api.getAppAccountingRecords());
+                    setSelectedDetailApp(null);
+                    onShowToast?.('Accounting Cleared', `Lifetime statistics reset for ${selectedDetailApp.friendlyName}`, 'info');
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Clear Lifetime History</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const app = selectedDetailApp;
+                      setSelectedDetailApp(null);
+                      openEditModal({
+                        targetType: 'application',
+                        targetIdentifier: app.exeName,
+                        friendlyName: app.friendlyName,
+                        exeName: app.exeName,
+                        appPath: app.fullPath,
+                        isGroupRule: true,
+                      });
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-semibold cursor-pointer"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Rate Limits</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleBlock(selectedDetailApp.exeName, !selectedDetailApp.isBlocked, selectedDetailApp.primaryPid);
+                      setSelectedDetailApp(null);
+                    }}
+                    className={`flex items-center gap-1 px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
+                      selectedDetailApp.isBlocked
+                        ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                        : 'bg-rose-600 hover:bg-rose-500 text-white'
+                    }`}
+                  >
+                    {selectedDetailApp.isBlocked ? 'Unblock App' : 'Block App'}
                   </button>
                 </div>
               </div>

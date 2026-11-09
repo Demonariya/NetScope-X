@@ -1,5 +1,6 @@
 use crate::monitoring::collector::MonitoringCollector;
 use crate::processes::enumeration::ProcessNetworkUsage;
+use crate::storage::database::Database;
 use crate::windows_utils::run_powershell_elevated;
 use tauri::command;
 
@@ -130,4 +131,63 @@ if ({block_value}) {{
             "Windows Firewall operation did not complete successfully: {output}"
         ))
     }
+}
+
+fn storage_database_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Cannot resolve application data directory: {error}"))?;
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Cannot create application data directory: {error}"))?;
+    Ok(directory.join("history.sqlite3"))
+}
+
+#[command]
+pub async fn get_app_accounting_records(
+    app: tauri::AppHandle,
+) -> Result<Vec<crate::storage::app_accounting::AppAccountingRecord>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db_path = storage_database_path(&app)?;
+        Database::with_shared(&db_path, crate::storage::app_accounting::AppAccountingStorage::get_all_records)
+            .map_err(|error| format!("Cannot query application accounting records: {error}"))
+    })
+    .await
+    .map_err(|error| format!("App accounting worker failed: {error}"))?
+}
+
+#[command]
+pub async fn get_app_traffic_samples(
+    app: tauri::AppHandle,
+    app_key: String,
+    limit: Option<usize>,
+) -> Result<Vec<crate::storage::app_accounting::AppSampleRecord>, String> {
+    let lim = limit.unwrap_or(100);
+    tauri::async_runtime::spawn_blocking(move || {
+        let db_path = storage_database_path(&app)?;
+        Database::with_shared(&db_path, |conn| {
+            crate::storage::app_accounting::AppAccountingStorage::get_app_samples(conn, &app_key, lim)
+        })
+        .map_err(|error| format!("Cannot query application samples: {error}"))
+    })
+    .await
+    .map_err(|error| format!("App samples worker failed: {error}"))?
+}
+
+#[command]
+pub async fn clear_app_accounting(
+    app: tauri::AppHandle,
+    app_key: Option<String>,
+) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db_path = storage_database_path(&app)?;
+        Database::with_shared(&db_path, |conn| {
+            crate::storage::app_accounting::AppAccountingStorage::clear_app_accounting(conn, app_key.as_deref())
+        })
+        .map_err(|error| format!("Cannot clear app accounting: {error}"))?;
+        Ok(true)
+    })
+    .await
+    .map_err(|error| format!("Clear app accounting worker failed: {error}"))?
 }

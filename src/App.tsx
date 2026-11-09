@@ -9,6 +9,7 @@ import { TrafficTab } from './components/traffic/TrafficTab';
 import { ConnectionsTab } from './components/connections/ConnectionsTab';
 import { HistoryTab } from './components/history/HistoryTab';
 import { BandwidthTab } from './components/bandwidth/BandwidthTab';
+import { DnsTab } from './components/dns/DnsTab';
 import { SettingsTab } from './components/settings/SettingsTab';
 import { ToastContainer, ToastMessage } from './components/common/Toast';
 import { NotificationQueue, NotificationType } from './utils/notifications';
@@ -942,7 +943,7 @@ export default function App() {
 
   const handleCustomDateFilter = async (startDate: string, endDate: string) => {
     try {
-      const records = await api.getHistory('custom', undefined, startDate, endDate);
+      const records = await api.getHistory('custom', startDate, endDate);
       setHistory(records);
       setHistoryRange('custom');
       addToast('Custom Range Loaded', `${startDate} to ${endDate} (${records.length} records)`, 'info');
@@ -1007,6 +1008,7 @@ export default function App() {
                 speedHistory={speedHistory}
                 accentColor={accentColor}
                 currentTheme={theme}
+                onShowToast={(t, m, type) => addToast(t, m, type ?? 'info')}
               />
             )}
 
@@ -1058,6 +1060,16 @@ export default function App() {
                 connections={connections}
                 onShowToast={(t, m) => addToast(t, m, 'info')}
                 currentTheme={theme}
+              />
+            )}
+
+            {activeTab === 'dns' && (
+              <DnsTab
+                adapters={adapters}
+                selectedAdapterId={selectedAdapterId}
+                accentColor={accentColor}
+                currentTheme={theme}
+                onShowToast={(t, m, type) => addToast(t, m, type ?? 'info')}
               />
             )}
 

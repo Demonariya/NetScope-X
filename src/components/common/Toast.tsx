@@ -18,7 +18,7 @@ export const ToastContainer: React.FC<ToastProps> = ({ toasts, onDismiss }) => {
     <div
       aria-live="polite"
       aria-atomic="false"
-      className="absolute bottom-16 left-3 right-3 z-50 flex flex-col gap-1.5 pointer-events-none"
+      className="fixed bottom-3 right-3 z-50 flex flex-col gap-1.5 max-w-[320px] w-full pointer-events-none"
     >
       <AnimatePresence mode="popLayout">
         {visibleToasts.map(toast => (
@@ -48,10 +48,10 @@ const ToastItem: React.FC<{ toast: ToastNotification; onDismiss: (id: string) =>
   }, [toast.id, toast.createdAt, durationMs]);
 
   const icons: Record<NotificationType, React.ReactNode> = {
-    success: <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />,
-    warning: <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />,
-    error: <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />,
-    info: <Info className="w-4 h-4 text-sky-400 shrink-0" />,
+    success: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />,
+    warning: <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />,
+    error: <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />,
+    info: <Info className="w-3.5 h-3.5 text-sky-400 shrink-0" />,
   };
 
   const borderClasses: Record<NotificationType, string> = {
@@ -71,18 +71,18 @@ const ToastItem: React.FC<{ toast: ToastNotification; onDismiss: (id: string) =>
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 12, scale: 0.95 }}
+      initial={{ opacity: 0, y: 10, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.92, transition: { duration: 0.15 } }}
-      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
       role={toast.type === 'error' ? 'alert' : 'status'}
-      className={`pointer-events-auto relative overflow-hidden flex items-start gap-2.5 p-2.5 rounded-lg border backdrop-blur-md shadow-xl text-slate-200 ${borderClasses[toast.type]}`}
+      className={`pointer-events-auto relative overflow-hidden flex items-start gap-2 px-2.5 py-2 rounded-lg border backdrop-blur-md shadow-lg text-slate-200 text-xs ${borderClasses[toast.type]}`}
     >
       <div className="pt-0.5">{icons[toast.type]}</div>
       <div className="flex-1 min-w-0 pr-1">
-        <p className="text-xs font-semibold text-slate-100 leading-tight">{toast.title}</p>
+        <p className="text-[11px] font-semibold text-slate-100 leading-tight">{toast.title}</p>
         {toast.message && (
-          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed break-words">
+          <p className="text-[10px] text-slate-400 mt-0.5 leading-snug break-words">
             {toast.message}
           </p>
         )}
@@ -92,7 +92,7 @@ const ToastItem: React.FC<{ toast: ToastNotification; onDismiss: (id: string) =>
         aria-label="Dismiss notification"
         className="text-slate-500 hover:text-slate-300 p-0.5 rounded transition-colors shrink-0 cursor-pointer"
       >
-        <X className="w-3.5 h-3.5" />
+        <X className="w-3 h-3" />
       </button>
 
       {/* 5-second countdown progress bar */}

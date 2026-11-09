@@ -5,12 +5,13 @@ import {
   Gauge,
   BarChart3,
   Network,
+  Globe,
   History,
   Settings,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
-export type TabType = 'overview' | 'applications' | 'bandwidth' | 'traffic' | 'connections' | 'history' | 'settings';
+export type TabType = 'overview' | 'applications' | 'bandwidth' | 'traffic' | 'connections' | 'dns' | 'history' | 'settings';
 
 interface NavigationProps {
   activeTab: TabType;
@@ -33,6 +34,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     { id: 'bandwidth' as TabType, label: 'Control', fullLabel: 'Bandwidth', icon: Gauge },
     { id: 'traffic' as TabType, label: 'Traffic', fullLabel: 'Traffic', icon: BarChart3 },
     { id: 'connections' as TabType, label: 'Sockets', fullLabel: 'Connections', icon: Network },
+    { id: 'dns' as TabType, label: 'DNS', fullLabel: 'DNS Manager', icon: Globe },
     { id: 'history' as TabType, label: 'History', fullLabel: 'History', icon: History },
     { id: 'settings' as TabType, label: 'Settings', fullLabel: 'Settings', icon: Settings },
   ];

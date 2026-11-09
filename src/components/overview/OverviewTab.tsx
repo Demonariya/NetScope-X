@@ -7,6 +7,11 @@ import {
   Activity,
   Globe,
   Radio,
+  History,
+  Play,
+  Square,
+  Clock,
+  Trash2,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -17,9 +22,10 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
-import { AdapterDiscoveryStatus, NetworkAdapter, NetworkStats, PingResult } from '../../types/network';
+import { AdapterDiscoveryStatus, NetworkAdapter, NetworkStats, PingResult, PingSessionRecord } from '../../types/network';
 import { formatBytes, formatSpeed, formatLatency, formatJitter, formatPercent } from '../../utils/formatters';
 import { getContrastingUploadColor } from '../../utils/appearance';
+import { api } from '../../services/api';
 
 interface OverviewTabProps {
   adapters: NetworkAdapter[];
@@ -33,6 +39,7 @@ interface OverviewTabProps {
   speedHistory: { time: string; downBps: number; upBps: number }[];
   accentColor?: string;
   currentTheme?: 'dark' | 'light' | 'system';
+  onShowToast?: (title: string, message?: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
 }
 
 /**
@@ -74,6 +81,126 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
   const [chartTimeframe, setChartTimeframe] = useState<'30s' | '60s' | '5m'>('30s');
   const [customPingHost, setCustomPingHost] = useState('');
+  const [pingIntervalMs, setPingIntervalMs] = useState(1000);
+  const [pingTimeoutMs, setPingTimeoutMs] = useState(2000);
+
+  // Continuous Ping State
+  const [isContinuous, setIsContinuous] = useState(false);
+  const [continuousStartTime, setContinuousStartTime] = useState<number | null>(null);
+  const [continuousStats, setContinuousStats] = useState<{
+    total: number;
+    success: number;
+    failed: number;
+    latencies: number[];
+  }>({ total: 0, success: 0, failed: 0, latencies: [] });
+
+  // Session History Modal State
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [pastSessions, setPastSessions] = useState<PingSessionRecord[]>([]);
+
+  // Continuous Ping Runner
+  React.useEffect(() => {
+    if (!isContinuous) return;
+
+    let inFlight = false;
+    let cancelled = false;
+    const target = activePingTarget || '1.1.1.1';
+
+    const interval = window.setInterval(async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
+      try {
+        const res = await api.getPing(target, pingTimeoutMs);
+        if (cancelled) return;
+        setContinuousStats(prev => {
+          const isSuccess = res.status === 'success' && Number.isFinite(res.latencyMs);
+          const nextLatencies = isSuccess ? [...prev.latencies, res.latencyMs] : prev.latencies;
+          return {
+            total: prev.total + 1,
+            success: isSuccess ? prev.success + 1 : prev.success,
+            failed: !isSuccess ? prev.failed + 1 : prev.failed,
+            latencies: nextLatencies,
+          };
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setContinuousStats(prev => ({
+            ...prev,
+            total: prev.total + 1,
+            failed: prev.failed + 1,
+          }));
+        }
+      } finally {
+        inFlight = false;
+      }
+    }, pingIntervalMs);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [isContinuous, activePingTarget, pingIntervalMs, pingTimeoutMs]);
+
+  const loadPastSessions = async () => {
+    try {
+      const sessions = await api.getPingSessions(50);
+      setPastSessions(sessions);
+    } catch (err) {
+      console.warn('Could not load ping sessions:', err);
+    }
+  };
+
+  const handleToggleContinuous = async () => {
+    if (!isContinuous) {
+      // Start continuous session
+      setContinuousStartTime(Date.now());
+      setContinuousStats({ total: 0, success: 0, failed: 0, latencies: [] });
+      setIsContinuous(true);
+    } else {
+      // Stop continuous session & save to SQLite
+      setIsContinuous(false);
+      const endTime = Date.now();
+      const startTime = continuousStartTime || endTime - 1000;
+      const target = activePingTarget || '1.1.1.1';
+      const total = continuousStats.total;
+      const success = continuousStats.success;
+      const failed = continuousStats.failed;
+      const lats = continuousStats.latencies;
+      const lossPercent = total > 0 ? (failed / total) * 100 : 0;
+      const minLat = lats.length > 0 ? Math.min(...lats) : 0;
+      const maxLat = lats.length > 0 ? Math.max(...lats) : 0;
+      const avgLat = lats.length > 0 ? lats.reduce((a, b) => a + b, 0) / lats.length : 0;
+      const jitter = lats.length > 1
+        ? lats.slice(1).reduce((sum, v, i) => sum + Math.abs(v - lats[i]), 0) / (lats.length - 1)
+        : 0;
+
+      if (total > 0) {
+        const sessionRecord: PingSessionRecord = {
+          id: `ping_${Date.now()}`,
+          target,
+          host: target,
+          startTime,
+          endTime,
+          totalRequests: total,
+          successfulRequests: success,
+          failedRequests: failed,
+          packetLossPercent: Number(lossPercent.toFixed(1)),
+          minLatencyMs: Number(minLat.toFixed(1)),
+          maxLatencyMs: Number(maxLat.toFixed(1)),
+          avgLatencyMs: Number(avgLat.toFixed(1)),
+          jitterMs: Number(jitter.toFixed(1)),
+        };
+
+        try {
+          await api.savePingSession(sessionRecord);
+          // Toast callback
+        } catch (err) {
+          console.warn('Failed to save ping session:', err);
+        }
+      }
+    }
+  };
+
   const uploadColor = React.useMemo(() => getContrastingUploadColor(accentColor), [accentColor]);
 
   const visibleAdapters = React.useMemo(() => {
@@ -586,14 +713,20 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             : 'bg-slate-900/80 border-slate-800/80 hover:border-slate-700/80'
         }`}
       >
-        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800/60">
+        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800/60 flex-wrap">
           <div className="flex items-center gap-1.5">
             <Radio className="w-4 h-4 text-emerald-400 shrink-0" />
             <span className="font-semibold text-xs text-slate-200">Quality & Latency</span>
+            {isContinuous && (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                <span>RUNNING ({continuousStats.total} pkts)</span>
+              </span>
+            )}
           </div>
 
-          {/* Quick Target Switcher with animated pill indicator */}
-          <div className="flex items-center gap-1 text-[11px] relative">
+          <div className="flex items-center gap-1.5 text-[11px] relative flex-wrap">
+            {/* Quick Target Switcher with animated pill indicator */}
             {['1.1.1.1', '8.8.8.8', '9.9.9.9'].map(target => {
               const isSelected = activePingTarget === target || (!activePingTarget && pingResult?.target === target);
               return (
@@ -618,6 +751,31 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 </motion.button>
               );
             })}
+
+            {/* Continuous Mode Button */}
+            <button
+              onClick={() => void handleToggleContinuous()}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border transition-all cursor-pointer ${
+                isContinuous
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 shadow-xs'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+              }`}
+            >
+              {isContinuous ? <Square className="w-3 h-3 text-rose-400" /> : <Play className="w-3 h-3 text-emerald-400" />}
+              <span>{isContinuous ? 'Stop' : 'Continuous'}</span>
+            </button>
+
+            {/* Past Sessions History Button */}
+            <button
+              onClick={() => {
+                void loadPastSessions();
+                setIsHistoryModalOpen(true);
+              }}
+              title="View past ping test sessions"
+              className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+            >
+              <History className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
 
@@ -808,17 +966,17 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           </div>
         )}
 
-        {/* Custom Ping Probe Form */}
-        <form onSubmit={handleCustomPingSubmit} className={`mt-2.5 pt-2 border-t flex items-center gap-2 ${
+        {/* Custom Ping Probe Form with IPv4/IPv6 support & Settings */}
+        <form onSubmit={handleCustomPingSubmit} className={`mt-2.5 pt-2 border-t flex flex-col sm:flex-row items-center gap-2 ${
           isLight ? 'border-slate-200' : 'border-slate-800/60'
         }`}>
-          <div className={`flex items-center gap-2 flex-1 border rounded px-2.5 py-1 ${
+          <div className={`flex items-center gap-2 flex-1 w-full border rounded px-2.5 py-1 ${
             isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
           }`}>
             <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
             <input
               type="text"
-              placeholder="Hostname or IPv4 address, e.g. 1.1.1.1"
+              placeholder="Hostname, IPv4 or IPv6 (e.g. 1.1.1.1, 8.8.8.8, 2606:4700:4700::1111)"
               value={customPingHost}
               onChange={e => setCustomPingHost(e.target.value)}
               className={`w-full bg-transparent text-xs focus:outline-none font-mono ${
@@ -826,14 +984,117 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               }`}
             />
           </div>
-          <button
-            type="submit"
-            className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-semibold rounded transition-colors shrink-0 cursor-pointer"
-          >
-            Probe
-          </button>
+
+          <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+            <select
+              value={pingIntervalMs}
+              onChange={e => setPingIntervalMs(Number(e.target.value))}
+              title="Probe interval"
+              className="text-[11px] bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-300 font-mono"
+            >
+              <option value={1000}>1s Interval</option>
+              <option value={2000}>2s Interval</option>
+              <option value={5000}>5s Interval</option>
+            </select>
+
+            <button
+              type="submit"
+              className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-semibold rounded transition-colors shrink-0 cursor-pointer"
+            >
+              Probe
+            </button>
+          </div>
         </form>
       </div>
+
+      {/* Ping Session History Modal */}
+      <AnimatePresence>
+        {isHistoryModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/70 backdrop-blur-xs">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className={`w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 rounded-2xl border shadow-2xl flex flex-col gap-3 ${
+                isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-100'
+              }`}
+            >
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <History className="w-4 h-4 text-sky-400" />
+                  <h3 className="text-sm font-bold">Past Ping Sessions (SQLite)</h3>
+                </div>
+                <button
+                  onClick={() => setIsHistoryModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-200 cursor-pointer text-sm"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {pastSessions.length > 0 ? (
+                <div className="space-y-2 max-h-96 overflow-y-auto divide-y divide-slate-800/60 font-mono">
+                  {pastSessions.map(session => (
+                    <div key={session.id} className="pt-2 first:pt-0 space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-sky-400">{session.target}</span>
+                        <span className="text-[10px] text-slate-400 font-sans">
+                          {new Date(session.startTime).toLocaleTimeString()} · {Math.round((session.endTime - session.startTime) / 1000)}s duration
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1 text-[11px] text-slate-300">
+                        <div>
+                          <span className="text-[9px] text-slate-400 block font-sans">Packets</span>
+                          <span>{session.successfulRequests}/{session.totalRequests}</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-slate-400 block font-sans">Loss</span>
+                          <span className={session.packetLossPercent > 0 ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
+                            {session.packetLossPercent}%
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-slate-400 block font-sans">Avg Latency</span>
+                          <span className="text-emerald-400 font-semibold">{session.avgLatencyMs} ms</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-slate-400 block font-sans">Min / Max</span>
+                          <span>{session.minLatencyMs} / {session.maxLatencyMs} ms</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-6 text-center text-xs text-slate-400 italic rounded-lg border border-dashed border-slate-800">
+                  No past ping sessions recorded yet. Run continuous ping and click stop to record a session.
+                </div>
+              )}
+
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs">
+                {pastSessions.length > 0 ? (
+                  <button
+                    onClick={async () => {
+                      await api.clearPingSessions();
+                      setPastSessions([]);
+                    }}
+                    className="flex items-center gap-1 text-rose-400 hover:text-rose-300 font-semibold cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Clear All Sessions</span>
+                  </button>
+                ) : <div />}
+                <button
+                  onClick={() => setIsHistoryModalOpen(false)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
