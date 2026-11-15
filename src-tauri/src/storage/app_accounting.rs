@@ -35,6 +35,7 @@ pub struct AppAccountingStorage;
 
 impl AppAccountingStorage {
     /// Update or insert cumulative lifetime bytes for an application identity.
+    #[allow(clippy::too_many_arguments)]
     pub fn record_traffic_delta(
         conn: &Connection,
         app_key: &str,
