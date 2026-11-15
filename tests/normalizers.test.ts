@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePingResult } from '../src/utils/normalizers';
+import {
+  normalizeNetworkAdapter,
+  normalizeNetworkAdapters,
+  normalizePingResult,
+} from '../src/utils/normalizers';
 import { DEFAULT_ACCENT_COLOR, getAccentCssVariables, normalizeHexColor } from '../src/utils/appearance';
 
 describe('normalizePingResult', () => {
@@ -53,5 +57,68 @@ describe('accent palette', () => {
     expect(variables['--color-sky-500']).toBe('#ec4899');
     expect(variables['--color-sky-300']).not.toBe(DEFAULT_ACCENT_COLOR);
     expect(Object.keys(variables)).toContain('--color-sky-950');
+  });
+});
+
+describe('normalizeNetworkAdapter', () => {
+  it('normalizes snake_case and string telemetry fields for Wi-Fi adapters', () => {
+    const adapter = normalizeNetworkAdapter({
+      id: '14',
+      name: 'Wi-Fi',
+      description: 'Intel(R) Wi-Fi 6 AX201',
+      type: 'wifi',
+      status: 'connected',
+      local_ipv4: '192.168.1.42',
+      mac_address: '70-66-55-44-33-22',
+      gateway: '192.168.1.1',
+      dns_servers: ['1.1.1.1', ''],
+      signal_percent: '89',
+      signal_dbm: '-55',
+      ssid: 'Studio-5G',
+      radio_type: '802.11ax',
+      rx_link_speed_mbps: '866',
+      tx_link_speed_mbps: 780,
+      speed_mbps: 0,
+      is_default: true,
+    });
+
+    expect(adapter.localIPv4).toBe('192.168.1.42');
+    expect(adapter.macAddress).toBe('70-66-55-44-33-22');
+    expect(adapter.dnsServers).toEqual(['1.1.1.1']);
+    expect(adapter.signalPercent).toBe(89);
+    expect(adapter.signalDbm).toBe(-55);
+    expect(adapter.ssid).toBe('Studio-5G');
+    expect(adapter.radioType).toBe('802.11ax');
+    expect(adapter.rxLinkSpeedMbps).toBe(866);
+    expect(adapter.txLinkSpeedMbps).toBe(780);
+    expect(adapter.speedMbps).toBe(866);
+    expect(adapter.isDefault).toBe(true);
+  });
+
+  it('clamps signalPercent and ignores null optional Wi-Fi metadata', () => {
+    const adapter = normalizeNetworkAdapter({
+      id: '12',
+      name: 'Ethernet',
+      type: 'ethernet',
+      status: 'connected',
+      signalPercent: 140,
+      signalDbm: null,
+      ssid: null,
+      speedMbps: 2500,
+    });
+
+    expect(adapter.signalPercent).toBe(100);
+    expect(adapter.signalDbm).toBeUndefined();
+    expect(adapter.ssid).toBeUndefined();
+    expect(adapter.speedMbps).toBe(2500);
+  });
+
+  it('normalizes both array and wrapped adapters payloads safely', () => {
+    expect(normalizeNetworkAdapters(null)).toEqual([]);
+    const list = normalizeNetworkAdapters({
+      adapters: [{ id: '1', name: 'Wi-Fi', type: 'wifi', status: 'connected', signalPercent: 72 }],
+    });
+    expect(list).toHaveLength(1);
+    expect(list[0].signalPercent).toBe(72);
   });
 });

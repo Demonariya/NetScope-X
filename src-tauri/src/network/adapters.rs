@@ -134,33 +134,110 @@ try {
   # DNS is optional metadata.
 }
 
-$wifiDetails = @{}
+$wifiByName = @{}
+$wifiByDesc = @{}
+$wifiByMac = @{}
+$profileNameByInterface = @{}
+$rssiByDescription = @{}
+
+try {
+  foreach ($profile in @(Get-NetConnectionProfile -ErrorAction SilentlyContinue)) {
+    if ($null -eq $profile -or $null -eq $profile.InterfaceIndex) { continue }
+    $key = [string]$profile.InterfaceIndex
+    $profileName = [string]$profile.Name
+    if (-not [string]::IsNullOrWhiteSpace($profileName) -and -not $profileNameByInterface.ContainsKey($key)) {
+      $profileNameByInterface[$key] = $profileName.Trim()
+    }
+  }
+} catch {
+  # Connection profile metadata is optional.
+}
+
+try {
+  foreach ($rssiEntry in @(Get-CimInstance -Namespace 'root\WMI' -ClassName 'MSNdis_80211_ReceivedSignalStrength' -ErrorAction SilentlyContinue)) {
+    if ($null -eq $rssiEntry -or $null -eq $rssiEntry.Ndis80211ReceivedSignalStrength) { continue }
+    $instanceName = ([string]$rssiEntry.InstanceName).Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($instanceName)) { continue }
+    $dbm = [int]$rssiEntry.Ndis80211ReceivedSignalStrength
+    if ($dbm -lt 0 -and $dbm -ge -120) {
+      $rssiByDescription[$instanceName] = $dbm
+    }
+  }
+} catch {
+  # Driver RSSI query may be unavailable on some drivers.
+}
+
 try {
   $netshOutput = @(netsh wlan show interfaces 2>$null)
   if ($netshOutput) {
-    $curSsid = $null
-    $curSignal = $null
-    $curRadio = $null
-    $curRx = $null
-    $curTx = $null
+    $currentBlock = $null
+    $commitBlock = {
+      param($block)
+      if ($null -eq $block) { return }
+      $isConnected = $true
+      if ($block.state -and $block.state -match 'disconnect') {
+        $isConnected = $false
+      }
+      $entry = @{
+        connected = $isConnected
+        ssid = if ($isConnected) {
+          if ($block.ssid) { $block.ssid } elseif ($block.profile) { $block.profile } else { $null }
+        } else { $null }
+        signal = if ($isConnected) { $block.signal } else { $null }
+        radioType = if ($isConnected) { $block.radioType } else { $null }
+        rxRate = if ($isConnected) { $block.rxRate } else { $null }
+        txRate = if ($isConnected) { $block.txRate } else { $null }
+      }
+      if ($block.name) { $wifiByName[$block.name.ToLowerInvariant()] = $entry }
+      if ($block.desc) { $wifiByDesc[$block.desc.ToLowerInvariant()] = $entry }
+      if ($block.mac) { $wifiByMac[$block.mac] = $entry }
+    }
+
     foreach ($line in $netshOutput) {
-      if ($line -match '^\s*SSID\s*:\s*(.+)$' -and $line -notmatch '^\s*BSSID') {
-        $curSsid = [string]$Matches[1].Trim()
+      if ($line -match '^\s*Name\s*:\s*(.+)$') {
+        if ($null -ne $currentBlock) { & $commitBlock $currentBlock }
+        $currentBlock = @{
+          name = [string]$Matches[1].Trim()
+          desc = $null
+          mac = $null
+          state = $null
+          ssid = $null
+          profile = $null
+          signal = $null
+          radioType = $null
+          rxRate = $null
+          txRate = $null
+        }
+        continue
+      }
+      if ($null -eq $currentBlock) { continue }
+      if ($line -match '^\s*Description\s*:\s*(.+)$') {
+        $currentBlock.desc = [string]$Matches[1].Trim()
+      } elseif ($line -match '^\s*Physical\s*address\s*:\s*(.+)$') {
+        $currentBlock.mac = ([string]$Matches[1].Trim().ToUpperInvariant() -replace '[^0-9A-F]', '')
+      } elseif ($line -match '^\s*State\s*:\s*(.+)$') {
+        $currentBlock.state = [string]$Matches[1].Trim().ToLowerInvariant()
+      } elseif ($line -match '^\s*SSID\s*:\s*(.+)$' -and $line -notmatch '^\s*BSSID') {
+        $rawSsid = [string]$Matches[1].Trim()
+        if ($rawSsid -and $rawSsid -notmatch '^<.*>$') {
+          $currentBlock.ssid = $rawSsid
+        }
+      } elseif ($line -match '^\s*Profile\s*:\s*(.+)$') {
+        $rawProfile = [string]$Matches[1].Trim()
+        if ($rawProfile -and $rawProfile -notmatch '^<.*>$') {
+          $currentBlock.profile = $rawProfile
+        }
       } elseif ($line -match '^\s*Signal\s*:\s*([0-9]+)%') {
-        $curSignal = [int]$Matches[1]
+        $currentBlock.signal = [int]$Matches[1]
       } elseif ($line -match '^\s*Radio\s*type\s*:\s*(.+)$') {
-        $curRadio = [string]$Matches[1].Trim()
+        $currentBlock.radioType = [string]$Matches[1].Trim()
       } elseif ($line -match '^\s*Receive\s*rate\s*\(Mbps\)\s*:\s*([0-9]+(?:\.[0-9]+)?)') {
-        $curRx = [int][math]::Round([double]$Matches[1])
+        $currentBlock.rxRate = [int][math]::Round([double]$Matches[1])
       } elseif ($line -match '^\s*Transmit\s*rate\s*\(Mbps\)\s*:\s*([0-9]+(?:\.[0-9]+)?)') {
-        $curTx = [int][math]::Round([double]$Matches[1])
+        $currentBlock.txRate = [int][math]::Round([double]$Matches[1])
       }
     }
-    if ($curSsid) { $wifiDetails['ssid'] = $curSsid }
-    if ($null -ne $curSignal) { $wifiDetails['signal'] = $curSignal }
-    if ($curRadio) { $wifiDetails['radioType'] = $curRadio }
-    if ($null -ne $curRx) { $wifiDetails['rxRate'] = $curRx }
-    if ($null -ne $curTx) { $wifiDetails['txRate'] = $curTx }
+    if ($null -ne $currentBlock) { & $commitBlock $currentBlock }
   }
 } catch {
   # Wi-Fi metadata is optional
@@ -184,8 +261,19 @@ $rows = @(
 
       $description = [string]$adapter.InterfaceDescription
       $adapterName = [string]$adapter.Name
+      $macNormalized = ([string]$adapter.MacAddress).Trim().ToUpperInvariant() -replace '[^0-9A-F]', ''
+      $wifiInfo = $null
+      if ($wifiByName.ContainsKey($adapterName.ToLowerInvariant())) {
+        $wifiInfo = $wifiByName[$adapterName.ToLowerInvariant()]
+      } elseif ($wifiByDesc.ContainsKey($description.ToLowerInvariant())) {
+        $wifiInfo = $wifiByDesc[$description.ToLowerInvariant()]
+      } elseif ($macNormalized -and $wifiByMac.ContainsKey($macNormalized)) {
+        $wifiInfo = $wifiByMac[$macNormalized]
+      }
+
+      $mediaType = [string]$adapter.PhysicalMediaType
       $kind = 'ethernet'
-      if ($description -match 'Wi-?Fi|Wireless|802\.11') { $kind = 'wifi' }
+      if ($description -match 'Wi-?Fi|WLAN|Wireless|802\.11' -or $adapterName -match 'Wi-?Fi|WLAN|Wireless' -or $mediaType -match '802\.11|Wireless' -or $null -ne $wifiInfo) { $kind = 'wifi' }
       elseif ($description -match 'RNDIS|USB Tether|Remote NDIS' -or $adapterName -match 'RNDIS|USB Tether|Remote NDIS') { $kind = 'usb_tether' }
       elseif ($description -match 'WWAN|Mobile Broadband|Cellular|LTE|5G Modem') { $kind = 'cellular' }
       elseif ($adapterName -match 'loopback' -or $description -match 'loopback') { $kind = 'loopback' }
@@ -194,6 +282,15 @@ $rows = @(
       if ($kind -eq 'virtual' -or $kind -eq 'loopback') { return }
 
       $status = if ($adapter.Status -eq 'Up') { 'connected' } else { 'disconnected' }
+      $nativeRxMbps = $null
+      if ($null -ne $adapter.ReceiveLinkSpeed -and [double]$adapter.ReceiveLinkSpeed -gt 0) {
+        $nativeRxMbps = [int][math]::Round([double]$adapter.ReceiveLinkSpeed / 1000000)
+      }
+      $nativeTxMbps = $null
+      if ($null -ne $adapter.TransmitLinkSpeed -and [double]$adapter.TransmitLinkSpeed -gt 0) {
+        $nativeTxMbps = [int][math]::Round([double]$adapter.TransmitLinkSpeed / 1000000)
+      }
+
       $speed = 0
       $linkText = [string]$adapter.LinkSpeed
       if ($linkText -match '([0-9]+(?:\.[0-9]+)?)\s*(Kbps|Mbps|Gbps)') {
@@ -204,14 +301,49 @@ $rows = @(
           'Kbps' { $speed = [int][math]::Round($number / 1000) }
         }
       }
+      if ($speed -le 0) {
+        if ($null -ne $nativeRxMbps -and $nativeRxMbps -gt 0) { $speed = $nativeRxMbps }
+        elseif ($null -ne $nativeTxMbps -and $nativeTxMbps -gt 0) { $speed = $nativeTxMbps }
+      }
 
-      $adapterSsid = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('ssid')) { [string]$wifiDetails['ssid'] } else { $null }
-      $adapterSignal = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('signal')) { [int]$wifiDetails['signal'] } else { $null }
-      $adapterRadio = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('radioType')) { [string]$wifiDetails['radioType'] } else { $null }
-      $adapterRx = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('rxRate')) { [int]$wifiDetails['rxRate'] } else { $null }
-      $adapterTx = if ($kind -eq 'wifi' -and $wifiDetails.ContainsKey('txRate')) { [int]$wifiDetails['txRate'] } else { $null }
-      # Never fabricate signal dBm: only populated if reported by driver
       $adapterDbm = $null
+      if ($kind -eq 'wifi' -and $status -eq 'connected') {
+        $descLower = $description.ToLowerInvariant()
+        if ($rssiByDescription.ContainsKey($descLower)) {
+          $adapterDbm = [int]$rssiByDescription[$descLower]
+        } else {
+          foreach ($rssiKey in $rssiByDescription.Keys) {
+            if ($rssiKey.Contains($descLower) -or $descLower.Contains($rssiKey)) {
+              $adapterDbm = [int]$rssiByDescription[$rssiKey]
+              break
+            }
+          }
+        }
+      }
+
+      $adapterSsid = $null
+      if ($kind -eq 'wifi' -and $status -eq 'connected') {
+        if ($null -ne $wifiInfo -and $wifiInfo.ssid) {
+          $adapterSsid = [string]$wifiInfo.ssid
+        } elseif ($profileNameByInterface.ContainsKey($key)) {
+          $adapterSsid = [string]$profileNameByInterface[$key]
+        }
+      }
+
+      $adapterSignal = $null
+      if ($kind -eq 'wifi' -and $status -eq 'connected') {
+        if ($null -ne $wifiInfo -and $null -ne $wifiInfo.signal) {
+          $adapterSignal = [int][math]::Min(100, [math]::Max(0, [int]$wifiInfo.signal))
+        } elseif ($null -ne $adapterDbm) {
+          $adapterSignal = [int][math]::Min(100, [math]::Max(0, 2 * ($adapterDbm + 100)))
+        }
+      }
+
+      $adapterRadio = if ($kind -eq 'wifi' -and $status -eq 'connected' -and $null -ne $wifiInfo -and $wifiInfo.radioType) { [string]$wifiInfo.radioType } else { $null }
+      $adapterRx = if ($kind -eq 'wifi' -and $status -eq 'connected' -and $null -ne $wifiInfo -and $null -ne $wifiInfo.rxRate) { [int]$wifiInfo.rxRate } else { $nativeRxMbps }
+      $adapterTx = if ($kind -eq 'wifi' -and $status -eq 'connected' -and $null -ne $wifiInfo -and $null -ne $wifiInfo.txRate) { [int]$wifiInfo.txRate } else { $nativeTxMbps }
+      if ($speed -le 0 -and $null -ne $adapterRx -and $adapterRx -gt 0) { $speed = $adapterRx }
+      if ($speed -le 0 -and $null -ne $adapterTx -and $adapterTx -gt 0) { $speed = $adapterTx }
 
       [pscustomobject]@{
         id = [string]$adapter.ifIndex
@@ -262,6 +394,20 @@ mod tests {
         assert_eq!(adapters.len(), 1);
         assert_eq!(adapters[0].id, "12");
         assert_eq!(adapters[0].name, "Ethernet");
+    }
+
+    #[test]
+    fn parses_wifi_adapter_signal_and_link_speeds() {
+        let json = r#"{"adapters":[{"id":"14","name":"Wi-Fi","description":"Intel(R) Wi-Fi 6 AX201","type":"wifi","status":"connected","localIPv4":"192.168.1.42","localIPv6":"","macAddress":"70-66-55-44-33-22","gateway":"192.168.1.1","dnsServers":["1.1.1.1"],"signalPercent":88,"signalDbm":-56,"ssid":"Office5G","radioType":"802.11ax","rxLinkSpeedMbps":866,"txLinkSpeedMbps":780,"speedMbps":866,"isDefault":true}]}"#;
+        let adapters = parse_adapter_payload(json).expect("valid wifi payload");
+        assert_eq!(adapters.len(), 1);
+        assert_eq!(adapters[0].signal_percent, Some(88));
+        assert_eq!(adapters[0].signal_dbm, Some(-56));
+        assert_eq!(adapters[0].ssid.as_deref(), Some("Office5G"));
+        assert_eq!(adapters[0].radio_type.as_deref(), Some("802.11ax"));
+        assert_eq!(adapters[0].rx_link_speed_mbps, Some(866));
+        assert_eq!(adapters[0].tx_link_speed_mbps, Some(780));
+        assert_eq!(adapters[0].speed_mbps, 866);
     }
 
     #[test]

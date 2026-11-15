@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { normalizePingResult } from '../utils/normalizers';
+import { normalizeNetworkAdapters, normalizePingResult } from '../utils/normalizers';
 import {
   NetworkAdapter,
   NetworkStats,
@@ -262,7 +262,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 export const api = {
   async getAdapters(): Promise<NetworkAdapter[]> {
-    return nativeCommand<NetworkAdapter[]>('get_network_adapters');
+    const result = await nativeCommand<unknown>('get_network_adapters');
+    return normalizeNetworkAdapters(result);
   },
 
   async getLiveStats(adapterId = 'auto'): Promise<NetworkStats> {

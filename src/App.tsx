@@ -483,29 +483,45 @@ export default function App() {
     };
   }, [isMonitoring, activeTab, historyRange]);
 
+  const adapterRefreshInFlightRef = useRef(false);
+  const refreshAdapters = useCallback(async (manual = false): Promise<boolean> => {
+    if (adapterRefreshInFlightRef.current) return false;
+    adapterRefreshInFlightRef.current = true;
+    try {
+      const found = await api.getAdapters();
+      const physical = found.filter(a => a.type !== 'virtual' && a.type !== 'loopback');
+      setAdapters(physical);
+      setAdapterDiscoveryStatus(physical.length > 0 ? 'available' : 'empty');
+      return true;
+    } catch (error) {
+      setAdapters(prev => {
+        if (prev.length === 0) {
+          setAdapterDiscoveryStatus('error');
+        }
+        return prev;
+      });
+      if (manual) {
+        addToast(
+          'Adapter Fetch Failed',
+          error instanceof Error ? error.message : String(error),
+          'error'
+        );
+      }
+      return false;
+    } finally {
+      adapterRefreshInFlightRef.current = false;
+    }
+  }, [addToast]);
+
   // Periodically refresh network adapters and signal telemetry while overview tab is active
   useEffect(() => {
     if (!isMonitoring || activeTab !== 'overview') return;
-    let cancelled = false;
-    const refreshAdapters = async () => {
-      try {
-        const found = await api.getAdapters();
-        if (cancelled) return;
-        const physical = found.filter(a => a.type !== 'virtual' && a.type !== 'loopback');
-        if (physical.length > 0) {
-          setAdapters(physical);
-        }
-      } catch {
-        // Silently tolerate background adapter poll jitter
-      }
-    };
-
-    const timer = window.setInterval(() => { void refreshAdapters(); }, 4000);
+    void refreshAdapters(false);
+    const timer = window.setInterval(() => { void refreshAdapters(false); }, 4000);
     return () => {
-      cancelled = true;
       window.clearInterval(timer);
     };
-  }, [isMonitoring, activeTab]);
+  }, [isMonitoring, activeTab, refreshAdapters]);
 
   // ICMP probing runs on a worker with explicit timeout and cancellation safeguards
   useEffect(() => {
@@ -1001,6 +1017,7 @@ export default function App() {
                 adapterDiscoveryStatus={adapterDiscoveryStatus}
                 selectedAdapterId={selectedAdapterId}
                 onSelectAdapter={handleSelectAdapter}
+                onRefreshAdapters={() => refreshAdapters(true)}
                 liveStats={liveStats}
                 activePingTarget={activePingTarget}
                 pingResult={pingResult}
