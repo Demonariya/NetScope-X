@@ -375,7 +375,7 @@ try {{
             0x00, 0x00, // ANCOUNT (0)
             0x00, 0x00, // NSCOUNT (0)
             0x00, 0x00, // ARCOUNT (0)
-            0x00,       // Root domain "."
+            0x00, // Root domain "."
             0x00, 0x02, // Type NS
             0x00, 0x01, // Class IN
         ];

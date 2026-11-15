@@ -56,26 +56,36 @@ impl HistoryStorage {
             }
             "today" => {
                 query.push_str(" AND date_str = ?");
-                params.push(rusqlite::types::Value::Text(today.format("%Y-%m-%d").to_string()));
+                params.push(rusqlite::types::Value::Text(
+                    today.format("%Y-%m-%d").to_string(),
+                ));
             }
             "yesterday" => {
-                let yesterday = (today - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+                let yesterday = (today - chrono::Duration::days(1))
+                    .format("%Y-%m-%d")
+                    .to_string();
                 query.push_str(" AND date_str = ?");
                 params.push(rusqlite::types::Value::Text(yesterday));
             }
             "this_week" => {
                 let days_from_monday = today.weekday().num_days_from_monday();
-                let monday = (today - chrono::Duration::days(days_from_monday as i64)).format("%Y-%m-%d").to_string();
+                let monday = (today - chrono::Duration::days(days_from_monday as i64))
+                    .format("%Y-%m-%d")
+                    .to_string();
                 query.push_str(" AND date_str >= ?");
                 params.push(rusqlite::types::Value::Text(monday));
             }
             "7d" => {
-                let earliest = (today - chrono::Duration::days(6)).format("%Y-%m-%d").to_string();
+                let earliest = (today - chrono::Duration::days(6))
+                    .format("%Y-%m-%d")
+                    .to_string();
                 query.push_str(" AND date_str >= ?");
                 params.push(rusqlite::types::Value::Text(earliest));
             }
             "30d" => {
-                let earliest = (today - chrono::Duration::days(29)).format("%Y-%m-%d").to_string();
+                let earliest = (today - chrono::Duration::days(29))
+                    .format("%Y-%m-%d")
+                    .to_string();
                 query.push_str(" AND date_str >= ?");
                 params.push(rusqlite::types::Value::Text(earliest));
             }
@@ -91,8 +101,11 @@ impl HistoryStorage {
                     (today.year(), today.month() - 1)
                 };
                 let first_of_prev = format!("{}-{:02}-01", prev_year, prev_month);
-                let first_of_curr = chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
-                let last_of_prev = (first_of_curr - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+                let first_of_curr = chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), 1)
+                    .unwrap_or(today);
+                let last_of_prev = (first_of_curr - chrono::Duration::days(1))
+                    .format("%Y-%m-%d")
+                    .to_string();
                 query.push_str(" AND date_str >= ? AND date_str <= ?");
                 params.push(rusqlite::types::Value::Text(first_of_prev));
                 params.push(rusqlite::types::Value::Text(last_of_prev));
@@ -211,8 +224,8 @@ mod tests {
 
         let yesterday = HistoryStorage::get_history(&connection, "yesterday", None, None, None)
             .expect("yesterday query should succeed");
-        let seven_days =
-            HistoryStorage::get_history(&connection, "7d", None, None, None).expect("seven-day query should succeed");
+        let seven_days = HistoryStorage::get_history(&connection, "7d", None, None, None)
+            .expect("seven-day query should succeed");
         let thirty_days = HistoryStorage::get_history(&connection, "30d", None, None, None)
             .expect("thirty-day query should succeed");
 

@@ -150,8 +150,11 @@ pub async fn get_app_accounting_records(
 ) -> Result<Vec<crate::storage::app_accounting::AppAccountingRecord>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let db_path = storage_database_path(&app)?;
-        Database::with_shared(&db_path, crate::storage::app_accounting::AppAccountingStorage::get_all_records)
-            .map_err(|error| format!("Cannot query application accounting records: {error}"))
+        Database::with_shared(
+            &db_path,
+            crate::storage::app_accounting::AppAccountingStorage::get_all_records,
+        )
+        .map_err(|error| format!("Cannot query application accounting records: {error}"))
     })
     .await
     .map_err(|error| format!("App accounting worker failed: {error}"))?
@@ -167,7 +170,9 @@ pub async fn get_app_traffic_samples(
     tauri::async_runtime::spawn_blocking(move || {
         let db_path = storage_database_path(&app)?;
         Database::with_shared(&db_path, |conn| {
-            crate::storage::app_accounting::AppAccountingStorage::get_app_samples(conn, &app_key, lim)
+            crate::storage::app_accounting::AppAccountingStorage::get_app_samples(
+                conn, &app_key, lim,
+            )
         })
         .map_err(|error| format!("Cannot query application samples: {error}"))
     })
@@ -183,7 +188,10 @@ pub async fn clear_app_accounting(
     tauri::async_runtime::spawn_blocking(move || {
         let db_path = storage_database_path(&app)?;
         Database::with_shared(&db_path, |conn| {
-            crate::storage::app_accounting::AppAccountingStorage::clear_app_accounting(conn, app_key.as_deref())
+            crate::storage::app_accounting::AppAccountingStorage::clear_app_accounting(
+                conn,
+                app_key.as_deref(),
+            )
         })
         .map_err(|error| format!("Cannot clear app accounting: {error}"))?;
         Ok(true)

@@ -118,7 +118,11 @@ impl AppAccountingStorage {
         rows.collect()
     }
 
-    pub fn get_app_samples(conn: &Connection, app_key: &str, limit: usize) -> Result<Vec<AppSampleRecord>> {
+    pub fn get_app_samples(
+        conn: &Connection,
+        app_key: &str,
+        limit: usize,
+    ) -> Result<Vec<AppSampleRecord>> {
         let mut stmt = conn.prepare(
             "SELECT id, app_key, timestamp, date_str, hour_str, download_bytes, upload_bytes
              FROM app_traffic_samples WHERE app_key = ?1 ORDER BY timestamp DESC LIMIT ?2",
@@ -143,7 +147,10 @@ impl AppAccountingStorage {
         match app_key {
             Some(key) => {
                 conn.execute("DELETE FROM app_traffic_samples WHERE app_key = ?1", [key])?;
-                conn.execute("DELETE FROM app_identity_accounting WHERE app_key = ?1", [key])
+                conn.execute(
+                    "DELETE FROM app_identity_accounting WHERE app_key = ?1",
+                    [key],
+                )
             }
             None => {
                 conn.execute("DELETE FROM app_traffic_samples", [])?;

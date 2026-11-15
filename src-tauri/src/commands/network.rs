@@ -35,10 +35,7 @@ pub async fn ping_target(
 }
 
 #[command]
-pub async fn save_ping_session(
-    app: AppHandle,
-    session: PingSessionRecord,
-) -> Result<bool, String> {
+pub async fn save_ping_session(app: AppHandle, session: PingSessionRecord) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let db_path = storage_database_path(&app)?;
         Database::with_shared(&db_path, |conn| PingStorage::save_session(conn, &session))

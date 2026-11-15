@@ -83,10 +83,7 @@ pub async fn get_dns_profiles(app: AppHandle) -> Result<Vec<DnsProfileRecord>, S
 }
 
 #[command]
-pub async fn save_dns_profile(
-    app: AppHandle,
-    profile: DnsProfileRecord,
-) -> Result<bool, String> {
+pub async fn save_dns_profile(app: AppHandle, profile: DnsProfileRecord) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let db_path = storage_database_path(&app)?;
         Database::with_shared(&db_path, |conn| DnsStorage::save_profile(conn, &profile))
@@ -98,14 +95,13 @@ pub async fn save_dns_profile(
 }
 
 #[command]
-pub async fn delete_dns_profile(
-    app: AppHandle,
-    profile_id: String,
-) -> Result<bool, String> {
+pub async fn delete_dns_profile(app: AppHandle, profile_id: String) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let db_path = storage_database_path(&app)?;
-        Database::with_shared(&db_path, |conn| DnsStorage::delete_profile(conn, &profile_id))
-            .map_err(|error| format!("Cannot delete DNS profile: {error}"))
+        Database::with_shared(&db_path, |conn| {
+            DnsStorage::delete_profile(conn, &profile_id)
+        })
+        .map_err(|error| format!("Cannot delete DNS profile: {error}"))
     })
     .await
     .map_err(|error| format!("DNS profile delete worker failed: {error}"))?
