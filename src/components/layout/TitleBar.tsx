@@ -7,6 +7,7 @@ import {
   Moon,
   Sun,
   Laptop,
+  Square,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -15,6 +16,7 @@ interface TitleBarProps {
   onToggleMonitoring: () => void;
   onHideToTray: () => void;
   onMinimize: () => void;
+  onToggleMaximize?: () => void;
   onClose: () => void;
   currentTheme?: 'dark' | 'light' | 'system';
   onToggleTheme?: () => void;
@@ -26,6 +28,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   onToggleMonitoring,
   onHideToTray,
   onMinimize,
+  onToggleMaximize,
   onClose,
   currentTheme = 'dark',
   onToggleTheme,
@@ -108,15 +111,28 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           data-tauri-drag-region="false"
           onClick={onMinimize}
           title="Minimize"
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-800 text-slate-400 hover:text-slate-100 transition-colors cursor-pointer"
+          aria-label="Minimize window"
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-800 text-slate-400 hover:text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
         >
           <Minus className="w-3.5 h-3.5" />
         </button>
+        {onToggleMaximize && (
+          <button
+            data-tauri-drag-region="false"
+            onClick={onToggleMaximize}
+            title="Maximize / Restore"
+            aria-label="Maximize or restore window"
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-800 text-slate-400 hover:text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+          >
+            <Square className="w-3 h-3" />
+          </button>
+        )}
         <button
           data-tauri-drag-region="false"
           onClick={onClose}
           title="Close (Minimizes to Tray by default)"
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-500/80 hover:text-white text-slate-400 transition-colors cursor-pointer"
+          aria-label="Close window"
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-500/80 hover:text-white text-slate-400 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
         >
           <X className="w-3.5 h-3.5" />
         </button>

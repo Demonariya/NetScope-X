@@ -37,9 +37,12 @@ pub async fn set_dns_servers(
 }
 
 #[command]
-pub async fn reset_dns_dhcp(adapter_alias: String) -> Result<bool, String> {
+pub async fn reset_dns_dhcp(
+    adapter_alias: String,
+    family: Option<String>,
+) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        DnsManager::reset_adapter_dns_dhcp(&adapter_alias)?;
+        DnsManager::reset_adapter_dns_dhcp(&adapter_alias, family.as_deref())?;
         Ok(true)
     })
     .await
@@ -57,18 +60,31 @@ pub async fn flush_dns_cache() -> Result<bool, String> {
 pub async fn resolve_dns_query(
     host: String,
     record_type: Option<String>,
+    resolver: Option<String>,
 ) -> Result<DnsQueryResult, String> {
     let rtype = record_type.unwrap_or_else(|| "A".to_string());
-    tauri::async_runtime::spawn_blocking(move || DnsManager::resolve_query(&host, &rtype))
-        .await
-        .map_err(|error| format!("DNS resolve worker failed: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        DnsManager::resolve_query(&host, &rtype, resolver.as_deref())
+    })
+    .await
+    .map_err(|error| format!("DNS resolve worker failed: {error}"))?
 }
 
 #[command]
-pub async fn test_dns_server(server_ip: String) -> Result<DnsTestResult, String> {
-    tauri::async_runtime::spawn_blocking(move || Ok(DnsManager::test_dns_server(&server_ip)))
-        .await
-        .map_err(|error| format!("DNS latency worker failed: {error}"))?
+pub async fn test_dns_server(
+    server_ip: String,
+    test_host: Option<String>,
+    record_type: Option<String>,
+) -> Result<DnsTestResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(DnsManager::test_dns_server(
+            &server_ip,
+            test_host.as_deref(),
+            record_type.as_deref(),
+        ))
+    })
+    .await
+    .map_err(|error| format!("DNS latency worker failed: {error}"))?
 }
 
 #[command]

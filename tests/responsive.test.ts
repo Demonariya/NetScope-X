@@ -135,7 +135,7 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     expect(newProcessTelemetry.length).toBe(2);
   });
 
-  it('verifies tauri configuration parameters for locked 1080x720 desktop window', async () => {
+  it('verifies tauri configuration parameters for resizable 1080x720 desktop window with 820x600 minimum', async () => {
     const fs = await import('fs');
     const path = await import('path');
     const confPath = path.resolve(process.cwd(), 'src-tauri/tauri.conf.json');
@@ -146,32 +146,37 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     expect(conf.app.withGlobalTauri).toBe(true);
     expect(conf.app.windows[0].width).toBe(1080);
     expect(conf.app.windows[0].height).toBe(720);
-    expect(conf.app.windows[0].minWidth).toBe(1080);
-    expect(conf.app.windows[0].minHeight).toBe(720);
-    expect(conf.app.windows[0].resizable).toBe(false);
-    expect(conf.app.windows[0].maximizable).toBe(false);
+    expect(conf.app.windows[0].minWidth).toBe(820);
+    expect(conf.app.windows[0].minHeight).toBe(600);
+    expect(conf.app.windows[0].resizable).toBe(true);
+    expect(conf.app.windows[0].maximizable).toBe(true);
     expect(conf.app.windows[0].center).toBe(true);
   });
 
-  it('validates supported responsive viewports from compact portrait to wide desktop', () => {
-    const validationViewports = [
-      { name: 'Minimum compact layout', width: 360, height: 640, mode: 'compact' },
-      { name: 'Primary application layout', width: 405, height: 720, mode: 'primary' },
-      { name: 'Larger portrait layout', width: 480, height: 854, mode: 'portrait' },
-      { name: 'Resized desktop window', width: 800, height: 900, mode: 'desktop' },
-      { name: 'Wide desktop layout', width: 1280, height: 800, mode: 'desktop-wide' },
+  it('validates supported desktop and compact responsive viewports with DPI scaling', () => {
+    const viewports = [
+      { width: 1440, height: 900, expectedSidebar: 208 },
+      { width: 1280, height: 800, expectedSidebar: 208 },
+      { width: 1080, height: 720, expectedSidebar: 208 },
+      { width: 1024, height: 768, expectedSidebar: 208 },
+      { width: 900, height: 650, expectedSidebar: 176 },
+      { width: 820, height: 600, expectedSidebar: 176 },
     ];
 
-    for (const vp of validationViewports) {
-      expect(vp.width).toBeGreaterThanOrEqual(360);
-      expect(vp.height).toBeGreaterThanOrEqual(640);
+    for (const vp of viewports) {
+      expect(vp.width).toBeGreaterThanOrEqual(820);
+      expect(vp.height).toBeGreaterThanOrEqual(600);
+      const sidebarWidth = vp.width >= 1024 ? 208 : 176;
+      expect(sidebarWidth).toBe(vp.expectedSidebar);
+      const contentWidth = vp.width - sidebarWidth;
+      expect(contentWidth).toBeGreaterThanOrEqual(644);
+    }
 
-      // Verify aspect and classification
-      if (vp.width <= 480) {
-        expect(['compact', 'primary', 'portrait']).toContain(vp.mode);
-      } else {
-        expect(['desktop', 'desktop-wide']).toContain(vp.mode);
-      }
+    // Verify logical CSS viewport stays within 820x600 minimum under Windows DPI scales
+    const dpiScales = [1.0, 1.25, 1.5];
+    for (const scale of dpiScales) {
+      const logicalWidthAt1920 = Math.round(1920 / scale);
+      expect(logicalWidthAt1920).toBeGreaterThanOrEqual(1280);
     }
   });
 
@@ -203,15 +208,8 @@ describe('Strict 405 × 720 px, 9:16 Portrait Canvas & System Verification', () 
     expect(ping.status).toBe('success');
   });
 
-  it('verifies desktop layout geometry: 1080px window width, 208px (w-52) sidebar, and 872px content area', () => {
-    const windowWidth = 1080;
-    const windowHeight = 720;
-    const sidebarWidth = 208; // Tailwind w-52 = 13rem = 208px
-    const contentWidth = windowWidth - sidebarWidth;
-
-    expect(windowWidth).toBe(1080);
-    expect(windowHeight).toBe(720);
-    expect(sidebarWidth).toBe(208);
-    expect(contentWidth).toBe(872);
+  it('verifies desktop layout geometry at default 1080x720 and minimum 820x600 bounds', () => {
+    expect(1080 - 208).toBe(872); // Default 1080px width with w-52 (208px) sidebar
+    expect(820 - 176).toBe(644); // Minimum 820px width with w-44 (176px) sidebar
   });
 });

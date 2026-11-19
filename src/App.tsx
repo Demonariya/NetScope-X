@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { TitleBar } from './components/layout/TitleBar';
 import { Navigation, TabType } from './components/layout/Navigation';
 import { OverviewTab } from './components/overview/OverviewTab';
@@ -834,6 +835,18 @@ export default function App() {
     }
   };
 
+  const handleToggleMaximize = async () => {
+    try {
+      if (!isTauri) {
+        addToast('Maximize Simulation', 'Window maximize/restore is active in the desktop build.', 'info');
+        return;
+      }
+      await getCurrentWindow().toggleMaximize();
+    } catch (error) {
+      addToast('Window Resize Failed', error instanceof Error ? error.message : String(error), 'error');
+    }
+  };
+
   const handleClose = async () => {
     try {
       if (settings?.startup?.minimizeToTrayOnClose !== false) {
@@ -986,13 +999,14 @@ export default function App() {
         onToggleMonitoring={handleToggleMonitoring}
         onHideToTray={handleHideToTray}
         onMinimize={handleMinimize}
+        onToggleMaximize={handleToggleMaximize}
         onClose={handleClose}
         currentTheme={theme}
         onToggleTheme={handleToggleTheme}
         accentColor={accentColor}
       />
 
-      {/* Main Body: Desktop Sidebar (w-52) + Content Viewport (872px on 1080px desktop) */}
+      {/* Main Body: Desktop Sidebar + Content Viewport */}
       <div className="flex-1 min-h-0 w-full flex overflow-hidden relative">
         <Navigation
           activeTab={activeTab}
@@ -1003,7 +1017,7 @@ export default function App() {
         />
 
         <main className="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden relative">
-          <div className="w-full max-w-5xl mx-auto min-h-full flex flex-col p-1 sm:p-2">
+          <div className="w-full max-w-6xl mx-auto min-h-full flex flex-col p-2 sm:p-3 lg:p-4">
             <motion.div
               key={activeTab}
               initial={{ opacity: 0 }}

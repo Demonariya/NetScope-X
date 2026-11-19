@@ -167,7 +167,10 @@ async function handleWebSimulation<T>(cmd: string, args?: Record<string, unknown
       );
     case 'reset_dns_dhcp':
       return Promise.resolve(
-        webSimulation.resetDnsDhcp(args?.adapterAlias as string) as unknown as T
+        webSimulation.resetDnsDhcp(
+          args?.adapterAlias as string,
+          args?.family as 'all' | 'ipv4' | 'ipv6' | undefined
+        ) as unknown as T
       );
     case 'flush_dns_cache':
       return Promise.resolve(webSimulation.flushDnsCache() as unknown as T);
@@ -175,12 +178,17 @@ async function handleWebSimulation<T>(cmd: string, args?: Record<string, unknown
       return Promise.resolve(
         webSimulation.resolveDnsQuery(
           args?.host as string,
-          args?.recordType as string | undefined
+          args?.recordType as string | undefined,
+          args?.resolver as string | undefined
         ) as unknown as T
       );
     case 'test_dns_server':
       return Promise.resolve(
-        webSimulation.testDnsServer(args?.serverIp as string) as unknown as T
+        webSimulation.testDnsServer(
+          args?.serverIp as string,
+          args?.testHost as string | undefined,
+          args?.recordType as string | undefined
+        ) as unknown as T
       );
     case 'get_dns_profiles':
       return Promise.resolve(webSimulation.getDnsProfiles() as unknown as T);
@@ -477,20 +485,35 @@ export const api = {
     });
   },
 
-  async resetDnsDhcp(adapterAlias: string): Promise<boolean> {
-    return nativeCommand<boolean>('reset_dns_dhcp', { adapterAlias });
+  async resetDnsDhcp(
+    adapterAlias: string,
+    family?: 'all' | 'ipv4' | 'ipv6'
+  ): Promise<boolean> {
+    return nativeCommand<boolean>('reset_dns_dhcp', { adapterAlias, family });
   },
 
   async flushDnsCache(): Promise<boolean> {
     return nativeCommand<boolean>('flush_dns_cache');
   },
 
-  async resolveDnsQuery(host: string, recordType = 'A'): Promise<DnsQueryResult> {
-    return nativeCommand<DnsQueryResult>('resolve_dns_query', { host, recordType });
+  async resolveDnsQuery(
+    host: string,
+    recordType = 'A',
+    resolver?: string
+  ): Promise<DnsQueryResult> {
+    return nativeCommand<DnsQueryResult>('resolve_dns_query', { host, recordType, resolver });
   },
 
-  async testDnsServer(serverIp: string): Promise<DnsTestResult> {
-    return nativeCommand<DnsTestResult>('test_dns_server', { serverIp });
+  async testDnsServer(
+    serverIp: string,
+    testHost?: string,
+    recordType?: string
+  ): Promise<DnsTestResult> {
+    return nativeCommand<DnsTestResult>('test_dns_server', {
+      serverIp,
+      testHost,
+      recordType,
+    });
   },
 
   async getDnsProfiles(): Promise<DnsProfile[]> {

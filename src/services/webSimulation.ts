@@ -52,8 +52,7 @@ const memoryStorage = new Map<string, string>();
 function safeGetStorage(key: string): string | null {
   try {
     if (typeof localStorage !== 'undefined') {
-      const val = localStorage.getItem(key);
-      if (val !== null) return val;
+      return localStorage.getItem(key);
     }
   } catch {}
   return memoryStorage.get(key) ?? null;
@@ -1114,45 +1113,129 @@ class SimulationState {
   }
 
   getDnsConfig(adapterAlias = 'Wi-Fi 6'): DnsConfig {
+    const alias = adapterAlias || 'Wi-Fi 6';
     try {
-      const saved = safeGetStorage(STORAGE_KEYS.DNS_CONFIG);
+      const saved = safeGetStorage(`${STORAGE_KEYS.DNS_CONFIG}_${alias}`);
       if (saved) {
         return JSON.parse(saved);
       }
+      const legacy = safeGetStorage(STORAGE_KEYS.DNS_CONFIG);
+      if (legacy) {
+        const parsed = JSON.parse(legacy) as DnsConfig;
+        if (!parsed.adapterAlias || parsed.adapterAlias === alias) {
+          return parsed;
+        }
+      }
     } catch {}
 
+    const matched = SIMULATED_ADAPTERS.find(a => a.name === alias);
+    if (matched && matched.status === 'disconnected' && matched.dnsServers.length === 0) {
+      return {
+        adapterAlias: matched.name,
+        adapterDescription: matched.description,
+        interfaceIndex: Number(matched.id) || 12,
+        isDhcp: true,
+        ipv4IsDhcp: true,
+        ipv6IsDhcp: true,
+        ipv4Servers: [],
+        ipv6Servers: [],
+        dnsSuffix: null,
+        status: 'unconfigured',
+        responseTimeMs: null,
+        ipv4Reachable: null,
+        ipv4LatencyMs: null,
+        ipv6Reachable: null,
+        ipv6LatencyMs: null,
+        testedAt: Date.now(),
+        lastError: 'Adapter is disconnected and has no DNS servers assigned.',
+      };
+    }
+
+    const now = Date.now();
     return {
-      adapterAlias: adapterAlias || 'Wi-Fi 6',
+      adapterAlias: alias,
+      adapterDescription: matched?.description || 'Intel(R) Wi-Fi 6 AX201 160MHz',
+      interfaceIndex: Number(matched?.id) || 14,
       isDhcp: true,
+      ipv4IsDhcp: true,
+      ipv6IsDhcp: true,
       ipv4Servers: ['1.1.1.1', '1.0.0.1'],
       ipv6Servers: ['2606:4700:4700::1111', '2606:4700:4700::1001'],
+      dnsSuffix: 'lan',
       status: 'configured',
       responseTimeMs: 12.8,
+      ipv4Reachable: true,
+      ipv4LatencyMs: 12.8,
+      ipv6Reachable: true,
+      ipv6LatencyMs: 15.1,
+      testedAt: now,
+      lastError: null,
     };
   }
 
   setDnsServers(adapterAlias: string, ipv4Servers: string[], ipv6Servers?: string[]): boolean {
+    const alias = adapterAlias || 'Wi-Fi 6';
+    const current = this.getDnsConfig(alias);
+    const nextV4 = ipv4Servers.length > 0 ? ipv4Servers : current.ipv4Servers;
+    const nextV4Dhcp = ipv4Servers.length > 0 ? false : (current.ipv4IsDhcp ?? current.isDhcp);
+    const nextV6 = ipv6Servers !== undefined ? ipv6Servers : current.ipv6Servers;
+    const nextV6Dhcp = ipv6Servers !== undefined && ipv6Servers.length > 0 ? false : (current.ipv6IsDhcp ?? current.isDhcp);
+
+    const probe = nextV4[0] ? this.testDnsServer(nextV4[0]) : nextV6[0] ? this.testDnsServer(nextV6[0]) : null;
     const config: DnsConfig = {
-      adapterAlias: adapterAlias || 'Wi-Fi 6',
-      isDhcp: false,
-      ipv4Servers,
-      ipv6Servers: ipv6Servers || ['2606:4700:4700::1111'],
-      status: 'configured',
-      responseTimeMs: Math.round(10 + Math.random() * 8),
+      ...current,
+      adapterAlias: alias,
+      isDhcp: nextV4Dhcp && nextV6Dhcp,
+      ipv4IsDhcp: nextV4Dhcp,
+      ipv6IsDhcp: nextV6Dhcp,
+      ipv4Servers: nextV4,
+      ipv6Servers: nextV6,
+      status: nextV4.length === 0 && nextV6.length === 0
+        ? 'unconfigured'
+        : probe?.reachable
+        ? 'configured'
+        : 'unreachable',
+      responseTimeMs: probe?.reachable ? probe.latencyMs : null,
+      ipv4Reachable: nextV4.length > 0 ? (probe?.reachable ?? false) : null,
+      ipv4LatencyMs: nextV4.length > 0 && probe?.reachable ? probe.latencyMs : null,
+      ipv6Reachable: nextV6.length > 0 ? true : null,
+      ipv6LatencyMs: nextV6.length > 0 ? 15.4 : null,
+      testedAt: Date.now(),
+      lastError: probe && !probe.reachable ? probe.errorMessage || 'Primary resolver unreachable.' : null,
     };
+    safeSetStorage(`${STORAGE_KEYS.DNS_CONFIG}_${alias}`, JSON.stringify(config));
     safeSetStorage(STORAGE_KEYS.DNS_CONFIG, JSON.stringify(config));
     return true;
   }
 
-  resetDnsDhcp(adapterAlias: string): boolean {
+  resetDnsDhcp(adapterAlias: string, family: 'all' | 'ipv4' | 'ipv6' = 'all'): boolean {
+    const alias = adapterAlias || 'Wi-Fi 6';
+    const current = this.getDnsConfig(alias);
+    const resetV4 = family === 'all' || family === 'ipv4';
+    const resetV6 = family === 'all' || family === 'ipv6';
+    const nextV4 = resetV4 ? ['192.168.1.1'] : current.ipv4Servers;
+    const nextV6 = resetV6 ? [] : current.ipv6Servers;
+    const nextV4Dhcp = resetV4 ? true : (current.ipv4IsDhcp ?? current.isDhcp);
+    const nextV6Dhcp = resetV6 ? true : (current.ipv6IsDhcp ?? current.isDhcp);
+
     const config: DnsConfig = {
-      adapterAlias: adapterAlias || 'Wi-Fi 6',
-      isDhcp: true,
-      ipv4Servers: ['192.168.1.1'],
-      ipv6Servers: [],
-      status: 'configured',
-      responseTimeMs: Math.round(3 + Math.random() * 4),
+      ...current,
+      adapterAlias: alias,
+      isDhcp: nextV4Dhcp && nextV6Dhcp,
+      ipv4IsDhcp: nextV4Dhcp,
+      ipv6IsDhcp: nextV6Dhcp,
+      ipv4Servers: nextV4,
+      ipv6Servers: nextV6,
+      status: nextV4.length > 0 || nextV6.length > 0 ? 'configured' : 'unconfigured',
+      responseTimeMs: nextV4.length > 0 ? Math.round((3 + Math.random() * 4) * 10) / 10 : null,
+      ipv4Reachable: nextV4.length > 0 ? true : null,
+      ipv4LatencyMs: nextV4.length > 0 ? 4.2 : null,
+      ipv6Reachable: nextV6.length > 0 ? true : null,
+      ipv6LatencyMs: nextV6.length > 0 ? 14.5 : null,
+      testedAt: Date.now(),
+      lastError: null,
     };
+    safeSetStorage(`${STORAGE_KEYS.DNS_CONFIG}_${alias}`, JSON.stringify(config));
     safeSetStorage(STORAGE_KEYS.DNS_CONFIG, JSON.stringify(config));
     return true;
   }
@@ -1161,49 +1244,92 @@ class SimulationState {
     return true;
   }
 
-  resolveDnsQuery(host: string, recordType = 'A'): DnsQueryResult {
+  resolveDnsQuery(host: string, recordType = 'A', resolver?: string): DnsQueryResult {
     const cleanHost = host.trim().toLowerCase();
     const type = recordType.toUpperCase();
-    const latency = Math.round(8 + Math.random() * 15);
+    const latency = Math.round((8 + Math.random() * 14) * 10) / 10;
+    const resolverUsed = resolver && resolver.trim() && resolver.trim().toLowerCase() !== 'system'
+      ? resolver.trim()
+      : 'System DNS';
+    const queriedAt = Date.now();
 
-    if (cleanHost === 'google.com') {
+    if (!cleanHost || /\s/.test(cleanHost) || cleanHost.endsWith('.invalid') || cleanHost.includes('nonexistent')) {
       return {
-        query: host,
+        query: host.trim(),
         recordType: type,
-        records: type === 'AAAA' ? ['2607:f8b0:4004:c07::64'] : ['142.250.190.46', '142.250.190.78'],
+        records: [],
+        detailedRecords: [],
         responseTimeMs: latency,
-        status: 'success',
-      };
-    } else if (cleanHost === 'cloudflare.com') {
-      return {
-        query: host,
-        recordType: type,
-        records: type === 'AAAA' ? ['2606:4700::6810:85e5'] : ['104.16.132.229', '104.16.133.229'],
-        responseTimeMs: latency,
-        status: 'success',
-      };
-    } else if (cleanHost === 'quad9.net') {
-      return {
-        query: host,
-        recordType: type,
-        records: type === 'AAAA' ? ['2620:fe::9'] : ['9.9.9.9', '149.112.112.112'],
-        responseTimeMs: latency,
-        status: 'success',
+        resolverUsed,
+        queriedAt,
+        status: 'error',
+        errorMessage: `DNS name does not exist (NXDOMAIN) for "${host.trim()}".`,
       };
     }
 
-    // Default simulated resolution
+    const buildRecords = (vals: string[], ttl = 300) => ({
+      records: vals,
+      detailedRecords: vals.map(value => ({ value, ttl, recordType: type })),
+    });
+
+    let resolved: { records: string[]; detailedRecords: { value: string; ttl: number; recordType: string }[] };
+    if (type === 'MX') {
+      resolved = buildRecords([`10 mail.${cleanHost}`, `20 alt1.mail.${cleanHost}`], 600);
+    } else if (type === 'TXT') {
+      resolved = buildRecords([`"v=spf1 include:_spf.${cleanHost} ~all"`], 3600);
+    } else if (type === 'CNAME') {
+      resolved = buildRecords([`edge.${cleanHost}.cdn.net`], 300);
+    } else if (type === 'NS') {
+      resolved = buildRecords([`ns1.${cleanHost}`, `ns2.${cleanHost}`], 86400);
+    } else if (cleanHost === 'google.com') {
+      resolved = buildRecords(
+        type === 'AAAA' ? ['2607:f8b0:4004:c07::64'] : ['142.250.190.46', '142.250.190.78'],
+        300
+      );
+    } else if (cleanHost === 'cloudflare.com') {
+      resolved = buildRecords(
+        type === 'AAAA' ? ['2606:4700::6810:85e5'] : ['104.16.132.229', '104.16.133.229'],
+        300
+      );
+    } else if (cleanHost === 'quad9.net') {
+      resolved = buildRecords(
+        type === 'AAAA' ? ['2620:fe::9'] : ['9.9.9.9', '149.112.112.112'],
+        300
+      );
+    } else {
+      resolved = buildRecords(
+        type === 'AAAA' ? ['2606:4700:4700::1111'] : ['104.21.54.12', '172.67.180.44'],
+        180
+      );
+    }
+
     return {
-      query: host,
+      query: host.trim(),
       recordType: type,
-      records: type === 'AAAA' ? ['2606:4700:4700::1111'] : ['104.21.54.12', '172.67.180.44'],
+      records: resolved.records,
+      detailedRecords: resolved.detailedRecords,
       responseTimeMs: latency,
+      resolverUsed,
+      queriedAt,
       status: 'success',
     };
   }
 
-  testDnsServer(serverIp: string): DnsTestResult {
+  testDnsServer(serverIp: string, testHost = 'cloudflare.com', recordType = 'A'): DnsTestResult {
     const ip = serverIp.trim();
+    const testedAt = Date.now();
+    if (!ip || ip.startsWith('192.0.2.') || ip.startsWith('198.51.100.') || ip.startsWith('203.0.113.') || ip === '0.0.0.0') {
+      return {
+        serverIp: ip,
+        reachable: false,
+        latencyMs: 0,
+        testedAt,
+        queryHost: testHost,
+        recordType,
+        errorMessage: 'Resolver timed out after 1500 ms.',
+      };
+    }
+
     const latencies: Record<string, number> = {
       '1.1.1.1': 11.4,
       '1.0.0.1': 12.1,
@@ -1215,6 +1341,7 @@ class SimulationState {
       '94.140.15.15': 23.0,
       '208.67.222.222': 16.7,
       '208.67.220.220': 17.2,
+      '192.168.1.1': 3.4,
     };
 
     const base = latencies[ip] ?? Math.round(15 + Math.random() * 20);
@@ -1222,6 +1349,10 @@ class SimulationState {
       serverIp: ip,
       reachable: true,
       latencyMs: Math.round((base + (Math.random() * 2 - 1)) * 10) / 10,
+      testedAt,
+      queryHost: testHost,
+      recordType,
+      errorMessage: null,
     };
   }
 
