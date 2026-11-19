@@ -37,10 +37,7 @@ pub async fn set_dns_servers(
 }
 
 #[command]
-pub async fn reset_dns_dhcp(
-    adapter_alias: String,
-    family: Option<String>,
-) -> Result<bool, String> {
+pub async fn reset_dns_dhcp(adapter_alias: String, family: Option<String>) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
         DnsManager::reset_adapter_dns_dhcp(&adapter_alias, family.as_deref())?;
         Ok(true)

@@ -158,7 +158,10 @@ fn normalize_ip_slice<T: std::str::FromStr>(servers: &[String]) -> Result<Vec<St
         if trimmed.parse::<T>().is_err() {
             return Err(format!("Invalid IP address format: {trimmed}"));
         }
-        if !cleaned.iter().any(|existing: &String| existing.eq_ignore_ascii_case(trimmed)) {
+        if !cleaned
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(trimmed))
+        {
             cleaned.push(trimmed.to_string());
         }
     }
@@ -527,7 +530,9 @@ $combinedDhcp = ($ipv4IsDhcp -and $ipv6IsDhcp)
         }
         let target_family = family.unwrap_or("all").trim().to_lowercase();
         if !matches!(target_family.as_str(), "all" | "ipv4" | "ipv6") {
-            return Err(format!("Unsupported DNS family for DHCP reset: {target_family}"));
+            return Err(format!(
+                "Unsupported DNS family for DHCP reset: {target_family}"
+            ));
         }
 
         #[cfg(windows)]
@@ -836,9 +841,9 @@ try {{
                             if is_dns_reply {
                                 let rcode = buffer[3] & 0x0F;
                                 if rcode == 0 || rcode == 3 {
-                                    let latency =
-                                        (start.elapsed().as_secs_f64() * 1000.0 * 10.0).round()
-                                            / 10.0;
+                                    let latency = (start.elapsed().as_secs_f64() * 1000.0 * 10.0)
+                                        .round()
+                                        / 10.0;
                                     return DnsTestResult {
                                         server_ip: clean_ip.to_string(),
                                         reachable: true,
@@ -949,9 +954,7 @@ mod tests {
     fn escapes_single_quotes_and_rejects_bad_ips() {
         assert_eq!(escape_ps_single_quoted("Bob's Wi-Fi"), "Bob''s Wi-Fi");
         assert!(DnsManager::set_adapter_dns("Wi-Fi", &["not-an-ip".to_string()], None).is_err());
-        assert!(
-            DnsManager::set_adapter_dns("Wi-Fi", &[], Some(&["1.1.1.1".to_string()])).is_err()
-        );
+        assert!(DnsManager::set_adapter_dns("Wi-Fi", &[], Some(&["1.1.1.1".to_string()])).is_err());
         let invalid_probe = DnsManager::test_dns_server("bad-ip", None, None);
         assert!(!invalid_probe.reachable);
         assert!(invalid_probe.error_message.is_some());
