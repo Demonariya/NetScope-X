@@ -822,7 +822,7 @@ try {{
         };
 
         let start = Instant::now();
-        let mut last_error = String::from("Resolver did not respond within timeout (1500 ms).");
+        let last_error;
 
         if let Ok(socket) = UdpSocket::bind(bind_addr) {
             let _ = socket.set_read_timeout(Some(Duration::from_millis(1500)));
